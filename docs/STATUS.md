@@ -1,6 +1,9 @@
 # Status
 
-**Current phase:** 0 — repository foundation (see `DEVELOPMENT_PLAN.md` §7)
+**Phase 0 is complete.** `pnpm verify` is green in CI on a repository that does
+nothing yet — the criterion in `DEVELOPMENT_PLAN.md` §7. **Next up: Phase 1.**
+
+Remote: https://github.com/solucoesjhg/planora (private)
 
 ## Done
 
@@ -21,11 +24,6 @@
 - Phase 1: the five pure domain modules with their tests, before any database
   and before any screen.
 
-**Phase 0 closes with one criterion partially met, deliberately.** `pnpm verify`
-is green locally, not in CI: the repository stays local for now by decision
-(2026-09-08), so `.github/workflows/verify.yml` has nothing to run on. Pushing
-to GitHub is all that is needed to finish it.
-
 ## Blocked / open
 
 - **Docker is not installed on this machine**, so the Supabase CLI local stack
@@ -34,3 +32,9 @@ to GitHub is all that is needed to finish it.
   The values in `.env.example` already assume the CLI stack's local ports.
 - Next scaffolded **16.3.4**, slightly ahead of the 16.2.6 the plan cites. No
   behavioural difference for anything written so far.
+- CI warns that `actions/checkout@v4`, `actions/setup-node@v4` and
+  `pnpm/action-setup@v4` target Node 20, which GitHub has deprecated; the runner
+  forces Node 24 and the job passes. Bump the action versions when convenient.
+- `typecheck` runs `next typegen` first: `LayoutProps` and the other route-type
+  helpers are generated, and a clean checkout has none. Deleting `.next` before
+  `pnpm verify` reproduces what CI sees.
