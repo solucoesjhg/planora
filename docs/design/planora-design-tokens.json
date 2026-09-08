@@ -1,0 +1,138 @@
+{
+  "meta": {
+    "name": "Planora UI Design Tokens",
+    "version": "2.0",
+    "purpose": "Tokens visuais para reproduzir a UI dark premium do Planora com Tailwind/CSS."
+  },
+  "colors": {
+    "background": {
+      "app": "#0E1110",
+      "appSoft": "#101412",
+      "surface": "#121614",
+      "panel": "#151915",
+      "panelElevated": "#171C18",
+      "card": "#181C19",
+      "cardHover": "#1B201C",
+      "input": "#101412"
+    },
+    "text": {
+      "primary": "#EEE5D6",
+      "secondary": "#AFA697",
+      "muted": "#8F887D",
+      "subtle": "#746E66",
+      "disabled": "#5D574F"
+    },
+    "border": {
+      "hairline": "rgba(232,221,200,0.06)",
+      "subtle": "rgba(232,221,200,0.10)",
+      "default": "rgba(232,221,200,0.14)",
+      "strong": "rgba(232,221,200,0.20)"
+    },
+    "brand": {
+      "sienna": "#A85C3A",
+      "siennaMuted": "#7A3F2D",
+      "siennaSoft": "rgba(168,92,58,0.14)",
+      "gold": "#C4A35A",
+      "stormy": "#6F7F8C",
+      "sage": "#6EA47A"
+    },
+    "semantic": {
+      "success": "#6EA47A",
+      "warning": "#C4A35A",
+      "danger": "#D57964",
+      "info": "#6F9CB1"
+    },
+    "phase": {
+      "planning": "#C4A35A",
+      "execution": "#6F7F8C",
+      "review": "#C4A35A",
+      "done": "#6EA47A"
+    },
+    "priority": {
+      "high": "#D57964",
+      "medium": "#C4A35A",
+      "low": "#6F9CB1"
+    }
+  },
+  "typography": {
+    "fontDisplay": "\"Cormorant Garamond\", \"Georgia\", serif",
+    "fontUi": "\"Inter\", \"Manrope\", system-ui, sans-serif",
+    "h1": {
+      "fontFamily": "display",
+      "fontSize": "40px",
+      "lineHeight": "1",
+      "letterSpacing": "-0.03em",
+      "fontWeight": "500"
+    },
+    "h2": {
+      "fontFamily": "display",
+      "fontSize": "22px",
+      "lineHeight": "1.15",
+      "letterSpacing": "-0.02em",
+      "fontWeight": "500"
+    },
+    "cardTitle": {
+      "fontFamily": "ui",
+      "fontSize": "15px",
+      "lineHeight": "1.35",
+      "fontWeight": "500"
+    },
+    "body": {
+      "fontFamily": "ui",
+      "fontSize": "14px",
+      "lineHeight": "1.55",
+      "fontWeight": "400"
+    },
+    "caption": {
+      "fontFamily": "ui",
+      "fontSize": "12px",
+      "lineHeight": "1.4",
+      "fontWeight": "400"
+    }
+  },
+  "layout": {
+    "appHeight": "100vh",
+    "sidebarLeftWidth": "238px",
+    "sidebarRightWidth": "338px",
+    "mainPaddingX": "40px",
+    "mainPaddingY": "28px",
+    "headerMinHeight": "116px",
+    "filterbarHeight": "72px",
+    "kanbanColumnWidth": "300px",
+    "kanbanColumnGap": "12px",
+    "taskCardMinHeight": "114px",
+    "taskCardPadding": "16px",
+    "taskCardRightUtilitySpace": "56px"
+  },
+  "radius": {
+    "button": "10px",
+    "input": "10px",
+    "taskCard": "10px",
+    "column": "12px",
+    "panel": "14px",
+    "avatar": "999px"
+  },
+  "shadows": {
+    "card": "0 16px 35px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.035)",
+    "cardHover": "0 22px 55px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.045)",
+    "panel": "0 18px 50px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.035)",
+    "sidebar": "inset -1px 0 0 rgba(232,221,200,0.08)",
+    "avatarRing": "0 0 0 2px rgba(14,17,16,0.85)"
+  },
+  "effects": {
+    "paperGrainOpacity": "0.22",
+    "noiseOpacity": "0.055",
+    "hoverLift": "-2px",
+    "transitionFast": "160ms ease",
+    "transitionNormal": "220ms ease"
+  },
+  "taskCard": {
+    "accentStripWidth": "3px",
+    "dividerOneRight": "42px",
+    "dividerTwoRight": "36px",
+    "dividerWidth": "1px",
+    "accentOpacity": "0.75",
+    "dividerOpacity1": "0.60",
+    "dividerOpacity2": "0.25"
+  }
+}
