@@ -18,10 +18,13 @@
 
 ## Next
 
-- Push to GitHub so the workflow actually runs — the Phase 0 criterion is
-  `pnpm verify` green **in CI**, and it currently passes locally only.
-- Then Phase 1: the five pure domain modules with their tests, before any
-  database and before any screen.
+- Phase 1: the five pure domain modules with their tests, before any database
+  and before any screen.
+
+**Phase 0 closes with one criterion partially met, deliberately.** `pnpm verify`
+is green locally, not in CI: the repository stays local for now by decision
+(2026-09-08), so `.github/workflows/verify.yml` has nothing to run on. Pushing
+to GitHub is all that is needed to finish it.
 
 ## Blocked / open
 
