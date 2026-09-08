@@ -86,7 +86,7 @@ Even so, RLS is a backstop and not the source of truth. The authority is the `Te
 
 ### 2.5 What Next 16 imposes
 
-The legacy project pins **Next 16.2.6 with React 19.2**, and the new repository starts there. Its breaking changes are load-bearing for this plan — each of these was checked against the framework's own bundled documentation under `node_modules/next/dist/docs/`, and should be re-checked there rather than remembered whenever the version moves:
+The repository scaffolds **Next 16.3.4 with React 19.2.8** (the legacy project pinned 16.2.6). Its breaking changes are load-bearing for this plan — each of these was checked against the framework's own bundled documentation under `node_modules/next/dist/docs/`, and should be re-checked there rather than remembered whenever the version moves:
 
 - **`params` and `searchParams` are Promises.** Every page and layout awaits them.
 - **`middleware.ts` is now `proxy.ts`**, it runs on the Node runtime and that is not configurable — the edge runtime is not supported there. Config flags renamed with it (`skipMiddlewareUrlNormalize` → `skipProxyUrlNormalize`).
@@ -730,7 +730,7 @@ This project is built by one person and a set of coding agents, with no deadline
 
 | File | Length | Purpose |
 |---|---|---|
-| `CLAUDE.md` | under 100 lines | Only what changes an agent's behaviour: the boundary rules, the verify command, where things go |
+| `AGENTS.md` | under 100 lines | Only what changes an agent's behaviour: the boundary rules, the verify command, where things go. `CLAUDE.md` is one line pointing at it, because Next regenerates a managed block at the top of `AGENTS.md` and two copies of the same rules would drift |
 | `docs/adr/NNNN-*.md` | ~15 lines each | One architectural decision per file: context, decision, consequence. ADR 0001 records the architecture this plan chose; every later one is written when a rule is discovered, never in advance |
 | `docs/DEVELOPMENT_PLAN.md` | ~900 lines | This document. Read the relevant section before writing code in that area |
 
