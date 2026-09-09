@@ -1,26 +1,170 @@
 @import "tailwindcss";
+@import "../styles/tokens.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+/**
+ * Tokens become utilities here, and only here. `bg-panel`, `text-secondary`,
+ * `border-line` are the vocabulary; a raw colour inside a component is a lint
+ * error (see eslint.config.mjs).
+ */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-app: var(--pln-bg-app);
+  --color-app-soft: var(--pln-bg-app-soft);
+  --color-surface: var(--pln-bg-surface);
+  --color-panel: var(--pln-bg-panel);
+  --color-panel-elevated: var(--pln-bg-panel-elevated);
+  --color-card: var(--pln-bg-card);
+  --color-card-hover: var(--pln-bg-card-hover);
+  --color-input: var(--pln-bg-input);
+  --color-overlay: var(--pln-bg-overlay);
+
+  --color-primary: var(--pln-text-primary);
+  --color-secondary: var(--pln-text-secondary);
+  --color-muted: var(--pln-text-muted);
+  --color-subtle: var(--pln-text-subtle);
+  --color-disabled: var(--pln-text-disabled);
+  --color-on-accent: var(--pln-text-on-accent);
+
+  --color-hairline: var(--pln-border-hairline);
+  --color-line: var(--pln-border-subtle);
+  --color-line-strong: var(--pln-border-strong);
+
+  --color-sienna: var(--pln-sienna);
+  --color-sienna-hover: var(--pln-sienna-hover);
+  --color-sienna-soft: var(--pln-sienna-soft);
+  --color-gold: var(--pln-gold);
+  --color-stormy: var(--pln-stormy);
+  --color-sage: var(--pln-sage);
+
+  --color-success: var(--pln-success);
+  --color-warning: var(--pln-warning);
+  --color-danger: var(--pln-danger);
+  --color-info: var(--pln-info);
+
+  --color-phase-planning: var(--pln-phase-planning);
+  --color-phase-execution: var(--pln-phase-execution);
+  --color-phase-review: var(--pln-phase-review);
+  --color-phase-done: var(--pln-phase-done);
+
+  --color-priority-high: var(--pln-priority-high);
+  --color-priority-medium: var(--pln-priority-medium);
+  --color-priority-low: var(--pln-priority-low);
+
+  --font-display: var(--font-cormorant), Georgia, serif;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+
+  --radius-control: var(--pln-radius-control);
+  --radius-card: var(--pln-radius-card);
+  --radius-column: var(--pln-radius-column);
+  --radius-panel: var(--pln-radius-panel);
+
+  --shadow-card: var(--pln-shadow-card);
+  --shadow-panel: var(--pln-shadow-panel);
+  --shadow-popup: var(--pln-shadow-popup);
+
+  --spacing-rail: var(--pln-rail-w);
+  --spacing-side-panel: var(--pln-panel-w);
+  --spacing-column: var(--pln-column-w);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  html {
+    height: 100%;
+  }
+
+  body {
+    min-height: 100%;
+    background: var(--pln-bg-app);
+    color: var(--pln-text-primary);
+    font-family: var(--font-inter), system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--pln-sienna-soft);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--pln-sienna);
+    outline-offset: 2px;
+    border-radius: 4px;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  /**
+   * The ground: a warm base, a barely-there glow at the top, and grain. No
+   * neon and no rasterised image — the v1 guidelines forbid both.
+   */
+  .pln-ground {
+    position: relative;
+    background:
+      linear-gradient(180deg, var(--pln-app-sheen), transparent 18%),
+      radial-gradient(circle at 50% -8%, var(--pln-app-glow), transparent 36%),
+      var(--pln-bg-app);
+  }
+
+  .pln-ground::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: var(--pln-noise-opacity);
+    /* Fine enough to read as grain rather than as a dot grid. */
+    background-image: radial-gradient(
+      circle at 1px 1px,
+      currentColor 0.5px,
+      transparent 0
+    );
+    background-size: 6px 6px;
+    mix-blend-mode: var(--pln-noise-blend);
+  }
+
+  .pln-display {
+    font-family: var(--font-cormorant), Georgia, serif;
+    font-weight: 500;
+    letter-spacing: -0.03em;
+  }
+
+  /**
+   * Shows one of two children according to the theme in force, so a toggle can
+   * render both icons without keeping the theme in React state as well.
+   * Mirrors the token cascade exactly: dark by default.
+   */
+  .pln-when-light {
+    display: none;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) .pln-when-dark {
+      display: none;
+    }
+    :root:not([data-theme="dark"]) .pln-when-light {
+      display: inline-flex;
+    }
+  }
+
+  :root[data-theme="light"] .pln-when-dark {
+    display: none;
+  }
+  :root[data-theme="light"] .pln-when-light {
+    display: inline-flex;
+  }
+  :root[data-theme="dark"] .pln-when-dark {
+    display: inline-flex;
+  }
+  :root[data-theme="dark"] .pln-when-light {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

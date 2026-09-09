@@ -28,8 +28,13 @@ test("signing up leads to a verified account with a workspace", async ({
 
   await page.goto("/dashboard");
   await expect(page.getByRole("heading", { name: "Painel" })).toBeVisible();
+
+  // The workspace exists the moment the account does: the context panel says
+  // which role, and the account menu says who.
+  await expect(page.getByTestId("panel").getByText("owner")).toBeVisible();
+
+  await page.getByRole("button", { name: "Conta" }).click();
   await expect(page.getByText(email)).toBeVisible();
-  await expect(page.getByText("owner")).toBeVisible();
 });
 
 test("the proxy sends a visitor to the login page", async ({ page }) => {

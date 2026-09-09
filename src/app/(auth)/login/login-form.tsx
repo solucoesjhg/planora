@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Field, Input } from "@/components/ui/field";
 import { signIn } from "@/lib/auth-client";
 
 export function LoginForm({ next }: { next: string }) {
@@ -32,50 +34,47 @@ export function LoginForm({ next }: { next: string }) {
   }
 
   return (
-    <section>
-      <h1 className="text-xl font-semibold">Entrar</h1>
+    <section className="flex flex-col gap-6">
+      <header className="flex flex-col gap-1">
+        <h1 className="pln-display text-2xl text-primary">Entrar</h1>
+        <p className="text-[13px] text-secondary">
+          Retome de onde seus projetos pararam.
+        </p>
+      </header>
 
-      <form onSubmit={onSubmit} className="mt-6 flex flex-col gap-3">
-        <label className="flex flex-col gap-1 text-sm">
-          E-mail
-          <input
-            name="email"
-            type="email"
-            required
-            autoComplete="email"
-            className="rounded border px-3 py-2"
-          />
-        </label>
+      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+        <Field label="E-mail">
+          {(id) => (
+            <Input id={id} name="email" type="email" required autoComplete="email" />
+          )}
+        </Field>
 
-        <label className="flex flex-col gap-1 text-sm">
-          Senha
-          <input
-            name="password"
-            type="password"
-            required
-            autoComplete="current-password"
-            className="rounded border px-3 py-2"
-          />
-        </label>
+        <Field label="Senha">
+          {(id) => (
+            <Input
+              id={id}
+              name="password"
+              type="password"
+              required
+              autoComplete="current-password"
+            />
+          )}
+        </Field>
 
         {error ? (
-          <p role="alert" className="text-sm text-red-700">
+          <p role="alert" className="text-[13px] text-danger">
             {error}
           </p>
         ) : null}
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="mt-2 rounded bg-black px-3 py-2 text-white disabled:opacity-60"
-        >
+        <Button type="submit" variant="primary" disabled={busy}>
           {busy ? "Entrando..." : "Entrar"}
-        </button>
+        </Button>
       </form>
 
-      <p className="mt-4 text-sm">
+      <p className="text-[13px] text-secondary">
         Não tem conta?{" "}
-        <Link href="/register" className="underline">
+        <Link href="/register" className="text-sienna underline-offset-4 hover:underline">
           Criar conta
         </Link>
       </p>

@@ -110,7 +110,7 @@ src/
     events/               outbox writer, dispatcher, handlers
     db/                   schema · migrations · seed
     storage/              the single Supabase Storage adapter
-  fixtures/               sample data, imported by tests and by /_dev routes
+  fixtures/               sample data, imported by tests and by /dev routes
   lib/                    dates, ids, formatting, Result type
   styles/                 tokens, Tailwind theme
   proxy.ts                redirects unauthenticated visitors, nothing more
@@ -412,7 +412,7 @@ Event types the MVP emits: `task.created`, `task.moved`, `task.blocked`, `task.u
 
 Migrations are generated from the schema, reviewed as SQL and committed. Against a local database they are applied by the CLI; against any deployed database — which first exists in Phase 3 — they are applied by the pipeline and never by hand.
 
-The seed is deterministic in the strict sense: **fixed ids and a frozen clock**. Ids are literal UUID v7 values pinned in the fixture, and every timestamp is derived from a seed epoch constant rather than `now()`, so "the seed rebuilds the identical state on every run" is a claim a test can make. Its content: one workspace, two projects, about twenty tasks spread across phases with blocks, dependencies and dates chosen so that every health dimension has something to say. It is the fixture the integration tests and the `/_dev` routes both consume — and `/_dev` routes exist only outside production builds.
+The seed is deterministic in the strict sense: **fixed ids and a frozen clock**. Ids are literal UUID v7 values pinned in the fixture, and every timestamp is derived from a seed epoch constant rather than `now()`, so "the seed rebuilds the identical state on every run" is a claim a test can make. Its content: one workspace, two projects, about twenty tasks spread across phases with blocks, dependencies and dates chosen so that every health dimension has something to say. It is the fixture the integration tests and the `/dev` routes both consume — and `/dev` routes exist only outside production builds.
 
 ### 4.8 Decisions taken
 
@@ -453,7 +453,7 @@ Development runs against the **Supabase CLI local stack** — Postgres and Stora
 
 ### 5.2 What we deliberately do not add
 
-- **No Storybook.** A `/_dev/ui` route inside the app shows every primitive in every state, against the real theme, with no second build to maintain.
+- **No Storybook.** A `/dev/ui` route inside the app shows every primitive in every state, against the real theme, with no second build to maintain.
 - **No GraphQL, no tRPC.** Server Actions already give end-to-end types across the boundary.
 - **No CSS-in-JS.** Tokens plus Tailwind, or it stops being one design system.
 - **No monorepo.** One deployable, one `package.json`, until there is a second consumer that actually exists.
@@ -616,7 +616,7 @@ The order is negotiable in most places and non-negotiable in one: **the domain c
 - The responsive tri-pane shell at the measurements the legacy `planora_ui_guidelines.md` already fixes: a 238px left rail, a fluid centre, a 338px right pane, 300px board columns
 - Its collapse rules, since 238 + 338 leaves no centre on a phone: below 1280px the right pane becomes a drawer; below 1024px the left rail collapses to icons; below 768px both are drawers over a full-width centre
 - Dark is the default theme and light is supported — the v1 shipped a toggle and it stays
-- `/_dev/ui` showing every primitive in every state
+- `/dev/ui` showing every primitive in every state
 
 > **Done when** lint refuses a raw hex value inside `components/`, and the shell renders with no horizontal overflow and no overlapping panes at 1440, 1280, 1024, 768 and 390px, in both themes.
 
@@ -723,7 +723,7 @@ This project is built by one person and a set of coding agents, with no deadline
 
 - **The phase rules of §7.1 apply here** — one phase, one branch, one pull request, and `pnpm verify` green before the next one opens.
 - **Specification becomes a test, not a paragraph.** A rule with no test is a rule that does not exist.
-- **Sample data lives in `src/fixtures/`**, imported by tests and by the `/_dev` routes. Never inside a component.
+- **Sample data lives in `src/fixtures/`**, imported by tests and by the `/dev` routes. Never inside a component.
 - **Commits and code in English**, interface strings in pt-BR (Appendix B). Conventional commits, so history stays readable.
 
 ### 8.2 The three documents that agents read

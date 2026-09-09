@@ -40,7 +40,7 @@ src/server/modules/<module>/   actions → services → repositories
 src/server/events/             outbox writer and dispatcher
 src/server/db/                 Drizzle schema, migrations, seed
 src/server/storage/            the single Supabase Storage adapter
-src/fixtures/     sample data for tests and /_dev routes — never inside a component
+src/fixtures/     sample data for tests and /dev routes — never inside a component
 src/lib/          shared utilities and the Result type; never a business rule
 tests/e2e/        Playwright; unit tests sit beside their modules as *.test.ts
 ```
