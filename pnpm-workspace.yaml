@@ -1,4 +1,6 @@
+# Which dependencies may run install scripts. esbuild needs its own — drizzle-kit
+# loads the schema through it — and nothing here uses sharp or unrs-resolver.
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true
   sharp: false
   unrs-resolver: false
