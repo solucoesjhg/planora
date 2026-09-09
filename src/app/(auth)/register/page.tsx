@@ -67,14 +67,17 @@ export default function RegisterPage() {
           )}
         </Field>
 
-        <Field label="Senha" hint="Ao menos 10 caracteres.">
+        <Field
+          label="Senha"
+          hint="Ao menos 8 caracteres. Uma frase que só você diria vale mais que símbolos."
+        >
           {(id) => (
             <Input
               id={id}
               name="password"
               type="password"
               required
-              minLength={10}
+              minLength={8}
               autoComplete="new-password"
             />
           )}

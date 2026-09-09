@@ -27,6 +27,8 @@ export default defineConfig({
       // The gallery is the subject of the shell tests, and they run against a
       // production build.
       ENABLE_DEV_ROUTES: "1",
+      // No third-party lookup from a test run.
+      DISABLE_BREACH_CHECK: "1",
       BETTER_AUTH_SECRET:
         process.env.BETTER_AUTH_SECRET ??
         "planora-e2e-secret-planora-e2e-secret-32",
