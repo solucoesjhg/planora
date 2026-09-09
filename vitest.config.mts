@@ -10,7 +10,13 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
-    // E2E lives in tests/ and belongs to Playwright.
-    exclude: ["node_modules/**", ".next/**", "tests/**"],
+    // E2E lives in tests/ and belongs to Playwright; integration tests need a
+    // database and have their own config.
+    exclude: [
+      "node_modules/**",
+      ".next/**",
+      "tests/**",
+      "src/**/*.integration.test.ts",
+    ],
   },
 });
