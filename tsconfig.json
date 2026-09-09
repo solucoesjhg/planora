@@ -1,6 +1,9 @@
 {
   "compilerOptions": {
-    "target": "ES2017",
+    // Next 16 already requires Chrome/Edge/Firefox 111+ and Safari 16.4+, so
+    // there is nothing to gain from compiling down past ES2022 — and BigInt
+    // (used by the UUID v7 helper) needs it.
+    "target": "ES2022",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,

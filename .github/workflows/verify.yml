@@ -24,3 +24,40 @@ jobs:
 
       # typecheck, lint, unit tests, build — the Phase 0 gate.
       - run: pnpm verify
+
+  database:
+    runs-on: ubuntu-latest
+
+    # The Phase 2 criterion is proved against a real Postgres, not a fake.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: planora_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Migrations, seed, services and the outbox, against the service container.
+      - run: pnpm test:db
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/planora_test

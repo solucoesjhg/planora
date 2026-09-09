@@ -1,0 +1,26 @@
+# Local database for development and integration tests.
+#
+# The plan's local environment is the Supabase CLI stack (§5.1), which is what
+# gives Storage parity — and Storage does not arrive until Phase 7. Until then
+# this is the whole dependency: one Postgres, on the port the CLI stack uses, so
+# DATABASE_URL does not change when we switch.
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: planora-db
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: planora_dev
+    ports:
+      - "54322:5432"
+    volumes:
+      - planora-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  planora-db:
