@@ -57,8 +57,13 @@ export async function resetDatabase(db: Database): Promise<void> {
       tasks,
       board_columns,
       projects,
+      workspace_invitations,
       workspace_members,
       workspaces,
+      sessions,
+      accounts,
+      verifications,
+      rate_limits,
       users
     restart identity cascade
   `);

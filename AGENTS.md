@@ -76,8 +76,10 @@ One phase, one branch, one pull request. No phase begins with a red test.
 - Code, schema, comments and commits in **English**; interface strings in
   **pt-BR** (plan, Appendix B). A pt-BR label never becomes an identifier.
 - Commands: `pnpm dev`, `pnpm verify`, `pnpm test:watch`, `pnpm e2e`.
-- Database: `docker compose up -d`, then `pnpm test:db` with `DATABASE_URL`
-  pointing at `postgresql://postgres:postgres@127.0.0.1:54322/planora_dev`.
-  Integration tests skip themselves when that variable is absent.
+- Services: `docker compose up -d` starts Postgres (54322) and the local inbox
+  Mailpit (http://localhost:8025). Then `pnpm test:db` with `DATABASE_URL`
+  pointing at `postgresql://postgres:postgres@127.0.0.1:54322/planora_dev`, and
+  `pnpm e2e` for Playwright. Integration tests skip themselves when that
+  variable is absent; no email leaves the machine in development.
 - The legacy directory `C:\Users\henri\.antigravity\Planora` is **read-only** —
   a requirements source and an asset library, never an import target.

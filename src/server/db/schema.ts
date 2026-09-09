@@ -10,6 +10,7 @@
 
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   check,
   date,
@@ -64,6 +65,85 @@ export const users = pgTable("users", {
   updatedAt: updatedAt(),
 });
 
+/**
+ * Better Auth owns the three tables below. Their field names are its contract,
+ * not ours — the adapter maps its models onto them through `usePlural`.
+ */
+
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    token: text("token").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [index("sessions_user_idx").on(table.userId, table.expiresAt)],
+);
+
+export const accounts = pgTable(
+  "accounts",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", {
+      withTimezone: true,
+    }),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", {
+      withTimezone: true,
+    }),
+    scope: text("scope"),
+    /** Hashed by Better Auth; never read by application code. */
+    password: text("password"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    unique("accounts_provider_account").on(table.providerId, table.accountId),
+    index("accounts_user_idx").on(table.userId),
+  ],
+);
+
+export const verifications = pgTable(
+  "verifications",
+  {
+    id: id(),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    index("verifications_identifier_idx").on(table.identifier, table.expiresAt),
+  ],
+);
+
+/**
+ * Better Auth's rate-limit counters. In the database rather than in memory,
+ * because a serverless deployment runs many instances and a per-instance
+ * counter is a limiter that does not limit.
+ */
+export const rateLimits = pgTable("rate_limits", {
+  id: id(),
+  key: text("key").notNull().unique(),
+  count: integer("count").notNull().default(0),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+});
+
 /* ---------------------------------------------------------------- *
  * Tenancy
  * ---------------------------------------------------------------- */
@@ -96,6 +176,40 @@ export const workspaceMembers = pgTable(
     unique("workspace_members_workspace_user").on(table.workspaceId, table.userId),
     index("workspace_members_workspace_idx").on(table.workspaceId, table.role),
     check("workspace_members_role", inList("role", ROLES)),
+  ],
+);
+
+export const workspaceInvitations = pgTable(
+  "workspace_invitations",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role").notNull().default("member"),
+    /**
+     * SHA-256 of the token that was emailed. The token itself is never stored,
+     * so a copy of this table cannot be replayed as a pile of live invitations.
+     */
+    tokenHash: text("token_hash").notNull().unique(),
+    invitedBy: uuid("invited_by")
+      .notNull()
+      .references(() => users.id),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    // One live invitation per address per workspace; accepting frees the slot.
+    uniqueIndex("workspace_invitations_pending")
+      .on(table.workspaceId, table.email)
+      .where(sql`accepted_at is null`),
+    index("workspace_invitations_workspace_idx").on(
+      table.workspaceId,
+      table.createdAt,
+    ),
+    check("workspace_invitations_role", inList("role", ROLES)),
   ],
 );
 
@@ -427,8 +541,13 @@ export const outboxEvents = pgTable(
 
 export const schema = {
   users,
+  sessions,
+  accounts,
+  verifications,
+  rateLimits,
   workspaces,
   workspaceMembers,
+  workspaceInvitations,
   projects,
   boardColumns,
   tasks,
