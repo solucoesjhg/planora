@@ -10,6 +10,7 @@
 
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   check,
   date,
@@ -130,6 +131,18 @@ export const verifications = pgTable(
     index("verifications_identifier_idx").on(table.identifier, table.expiresAt),
   ],
 );
+
+/**
+ * Better Auth's rate-limit counters. In the database rather than in memory,
+ * because a serverless deployment runs many instances and a per-instance
+ * counter is a limiter that does not limit.
+ */
+export const rateLimits = pgTable("rate_limits", {
+  id: id(),
+  key: text("key").notNull().unique(),
+  count: integer("count").notNull().default(0),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+});
 
 /* ---------------------------------------------------------------- *
  * Tenancy
@@ -531,6 +544,7 @@ export const schema = {
   sessions,
   accounts,
   verifications,
+  rateLimits,
   workspaces,
   workspaceMembers,
   workspaceInvitations,

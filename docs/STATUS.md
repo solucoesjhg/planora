@@ -42,6 +42,17 @@ restyle.
 - Phase 4 — design system and shell: tokens as Tailwind `@theme`, the
   primitives, the tri-pane shell and its collapse rules, `/_dev/ui`.
 
+## Open decisions
+
+- **Should the verification link also sign the person in?** Today it does
+  (`autoSignInAfterVerification: true` in `src/server/auth/config.ts`). The link
+  is a JWT signed with `BETTER_AUTH_SECRET`, valid for 15 minutes and **not
+  single-use** — Better Auth verifies the signature and expiry without storing
+  it. So for that window the message in the inbox is a live credential: whoever
+  opens the mailbox is in the account. Turning the flag off costs one extra step
+  at signup (verify, then log in) and removes the property entirely. Revisit
+  before the product holds anybody else's data — Phase 10 at the latest.
+
 ## Blocked / open
 
 - **The Supabase CLI stack is deferred to Phase 7**, when Storage arrives.

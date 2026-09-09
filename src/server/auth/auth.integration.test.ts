@@ -4,6 +4,7 @@ import { isRefused } from "@/lib/result";
 import { createAuth } from "@/server/auth/config";
 import type { Connection } from "@/server/db/client";
 import {
+  rateLimits,
   users,
   workspaceInvitations,
   workspaceMembers,
@@ -83,6 +84,37 @@ suite("signing up", () => {
     expect(sender.outbox[0]?.to).toBe("ana@example.com");
     expect(sender.outbox[0]?.subject).toContain("Confirme seu e-mail");
     expect(sender.outbox[0]?.html).toContain("http");
+  });
+
+  it("counts requests in the database and refuses the sixth signup in a minute", async () => {
+    const attempt = (index: number) =>
+      auth.handler(
+        new Request("http://localhost:3000/api/auth/sign-up/email", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-forwarded-for": "203.0.113.10",
+          },
+          body: JSON.stringify({
+            name: `Pessoa ${index}`,
+            email: `pessoa${index}@example.com`,
+            password,
+          }),
+        }),
+      );
+
+    const statuses: number[] = [];
+    for (let index = 0; index < 6; index += 1) {
+      statuses.push((await attempt(index)).status);
+    }
+
+    // Five get through, the sixth is refused — and the counter is a row, not a
+    // number in one instance's memory.
+    expect(statuses.filter((status) => status === 429)).toHaveLength(1);
+    expect(statuses.at(-1)).toBe(429);
+
+    const counters = await connection.db.select().from(rateLimits);
+    expect(counters.length).toBeGreaterThan(0);
   });
 
   it("does not duplicate the account or the workspace on a repeated signup", async () => {

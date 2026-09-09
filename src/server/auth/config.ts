@@ -53,6 +53,15 @@ export function createAuth({ database, sender, baseUrl, secret }: AuthOptions) {
     },
     emailVerification: {
       sendOnSignUp: true,
+      // The link is a JWT that is not single-use: it works for as long as it is
+      // valid, and — while autoSignInAfterVerification stays on — clicking it
+      // signs the person in. Fifteen minutes rather than the default hour keeps
+      // that bearer window short.
+      expiresIn: 900,
+      // TODO(review): decide whether the verification link should also sign the
+      // person in. Turning this off costs one extra step at signup and removes
+      // the "link in an inbox is a live credential" property entirely.
+      // See docs/STATUS.md, "Open decisions".
       autoSignInAfterVerification: true,
       sendVerificationEmail: async ({ user, url }) => {
         await sender.send(
@@ -74,6 +83,26 @@ export function createAuth({ database, sender, baseUrl, secret }: AuthOptions) {
             });
           },
         },
+      },
+    },
+    /**
+     * On by default only in production, counted in memory, which on a
+     * serverless deployment means a counter per instance. Both are fixed here:
+     * always on, counted in Postgres, and stricter on the endpoints worth
+     * attacking than on session reads.
+     */
+    rateLimit: {
+      enabled: true,
+      storage: "database",
+      // The model is `rateLimit`; `usePlural` maps it onto the `rateLimits`
+      // table. Naming it in the plural here makes the adapter pluralize twice.
+      window: 10,
+      max: 100,
+      customRules: {
+        "/sign-in/email": { window: 60, max: 10 },
+        "/sign-up/email": { window: 60, max: 5 },
+        "/request-password-reset": { window: 60, max: 5 },
+        "/send-verification-email": { window: 60, max: 5 },
       },
     },
     plugins: [nextCookies()],

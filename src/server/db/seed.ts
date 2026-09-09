@@ -63,6 +63,7 @@ export async function resetDatabase(db: Database): Promise<void> {
       sessions,
       accounts,
       verifications,
+      rate_limits,
       users
     restart identity cascade
   `);
