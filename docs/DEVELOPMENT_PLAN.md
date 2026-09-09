@@ -267,7 +267,7 @@ The engine also takes the **previous snapshot** — verdict and score — as an 
 `canMoveTask()` is shared by both sides of the wire: the board calls it during a drag to bounce the card before any request, and the service calls it to decide whether to write.
 
 ```
-canMoveTask(task, from, to, ack?) -> Allowed | Refused(reason)
+canMoveTask({ task, from, to, context, ack? }) -> Allowed | Refused(reason)
 
 Refused when:
   to.phase === 'done' and task.blockFlag is set             -> 'blocked'
