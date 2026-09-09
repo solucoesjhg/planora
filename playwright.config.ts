@@ -17,6 +17,16 @@ export default defineConfig({
     command: "pnpm build && pnpm start",
     url: `http://localhost:${port}`,
     reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
+    timeout: 300_000,
+    env: {
+      DATABASE_URL:
+        process.env.DATABASE_URL ??
+        "postgresql://postgres:postgres@127.0.0.1:54322/planora_dev",
+      MAILPIT_URL: process.env.MAILPIT_URL ?? "http://127.0.0.1:8025",
+      BETTER_AUTH_URL: `http://localhost:${port}`,
+      BETTER_AUTH_SECRET:
+        process.env.BETTER_AUTH_SECRET ??
+        "planora-e2e-secret-planora-e2e-secret-32",
+    },
   },
 });

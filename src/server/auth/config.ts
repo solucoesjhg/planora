@@ -1,0 +1,109 @@
+/**
+ * Better Auth (DEVELOPMENT_PLAN.md §5, §7 Phase 3).
+ *
+ * Sessions live in our own database, the tables are ours, and no third-party
+ * SDK reaches the client. Email and password only — social providers are not
+ * on the map for v1.
+ */
+
+import { betterAuth } from "better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { nextCookies } from "better-auth/next-js";
+import { newId } from "@/lib/id";
+import { getDatabase, type Database } from "@/server/db/client";
+import * as schema from "@/server/db/schema";
+import { senderFromEnvironment, type EmailSender } from "@/server/email/sender";
+import {
+  resetPasswordEmail,
+  verificationEmail,
+} from "@/server/email/templates";
+import { createPersonalWorkspace } from "@/server/modules/workspaces/repository";
+
+export type AuthOptions = {
+  readonly database: Database;
+  readonly sender: EmailSender;
+  readonly baseUrl: string;
+  readonly secret: string;
+};
+
+export function createAuth({ database, sender, baseUrl, secret }: AuthOptions) {
+  return betterAuth({
+    baseURL: baseUrl,
+    secret,
+    database: drizzleAdapter(database, {
+      provider: "pg",
+      usePlural: true,
+      schema,
+    }),
+    advanced: {
+      database: {
+        // Same id scheme as every other table: time-ordered UUID v7.
+        generateId: () => newId(),
+      },
+    },
+    emailAndPassword: {
+      enabled: true,
+      requireEmailVerification: true,
+      minPasswordLength: 10,
+      sendResetPassword: async ({ user, url }) => {
+        await sender.send(
+          resetPasswordEmail({ to: user.email, name: user.name, url }),
+        );
+      },
+    },
+    emailVerification: {
+      sendOnSignUp: true,
+      autoSignInAfterVerification: true,
+      sendVerificationEmail: async ({ user, url }) => {
+        await sender.send(
+          verificationEmail({ to: user.email, name: user.name, url }),
+        );
+      },
+    },
+    databaseHooks: {
+      user: {
+        create: {
+          after: async (user) => {
+            // Signing up gives you a workspace of your own (§6.1).
+            await createPersonalWorkspace(database, {
+              id: user.id,
+              name: user.name,
+              email: user.email,
+            });
+          },
+        },
+      },
+    },
+    plugins: [nextCookies()],
+  });
+}
+
+export type Auth = ReturnType<typeof createAuth>;
+
+let instance: Auth | null = null;
+
+/** Built on first use, so importing this module never opens a connection. */
+export function getAuth(): Auth {
+  if (instance) return instance;
+
+  instance = createAuth({
+    database: getDatabase(),
+    sender: senderFromEnvironment(),
+    baseUrl: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+    secret: requireSecret(),
+  });
+
+  return instance;
+}
+
+function requireSecret(): string {
+  const secret = process.env.BETTER_AUTH_SECRET;
+  if (secret && secret.length >= 32) return secret;
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("BETTER_AUTH_SECRET must be set to at least 32 characters");
+  }
+
+  // Development only, and deliberately obvious in a diff.
+  return "planora-development-secret-planora-development-secret";
+}

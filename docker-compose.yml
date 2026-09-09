@@ -22,5 +22,14 @@ services:
       timeout: 5s
       retries: 10
 
+  # The local inbox. Nothing leaves the machine in development, and the
+  # messages are read at http://localhost:8025.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: planora-mail
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
 volumes:
   planora-db:
