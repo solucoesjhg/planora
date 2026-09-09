@@ -8,6 +8,7 @@
 
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { newId } from "@/lib/id";
 import { getDatabase, type Database } from "@/server/db/client";
@@ -18,15 +19,34 @@ import {
   verificationEmail,
 } from "@/server/email/templates";
 import { ensurePersonalWorkspace } from "@/server/modules/workspaces/repository";
+import {
+  MIN_PASSWORD_LENGTH,
+  PASSWORD_MESSAGES,
+  checkPassword,
+} from "./password-policy";
+
+/** The endpoints that accept a password Better Auth is about to store. */
+const PASSWORD_PATHS = ["/sign-up/email", "/change-password", "/reset-password"];
 
 export type AuthOptions = {
   readonly database: Database;
   readonly sender: EmailSender;
   readonly baseUrl: string;
   readonly secret: string;
+  /**
+   * The breach check reaches api.pwnedpasswords.com. Tests turn it off so the
+   * suite neither depends on the network nor spends somebody else's quota.
+   */
+  readonly checkBreaches?: boolean;
 };
 
-export function createAuth({ database, sender, baseUrl, secret }: AuthOptions) {
+export function createAuth({
+  database,
+  sender,
+  baseUrl,
+  secret,
+  checkBreaches = true,
+}: AuthOptions) {
   return betterAuth({
     baseURL: baseUrl,
     secret,
@@ -44,7 +64,7 @@ export function createAuth({ database, sender, baseUrl, secret }: AuthOptions) {
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: true,
-      minPasswordLength: 10,
+      minPasswordLength: MIN_PASSWORD_LENGTH,
       sendResetPassword: async ({ user, url }) => {
         await sender.send(
           resetPasswordEmail({ to: user.email, name: user.name, url }),
@@ -65,7 +85,14 @@ export function createAuth({ database, sender, baseUrl, secret }: AuthOptions) {
       autoSignInAfterVerification: true,
       sendVerificationEmail: async ({ user, url }) => {
         await sender.send(
-          verificationEmail({ to: user.email, name: user.name, url }),
+          verificationEmail({
+            to: user.email,
+            name: user.name,
+            // Better Auth defaults the callback to "/", which would land a
+            // freshly verified account on the marketing page. Verification
+            // signs them in, so it should land where signed-in people go.
+            url: withCallback(url, "/dashboard"),
+          }),
         );
       },
     },
@@ -105,6 +132,40 @@ export function createAuth({ database, sender, baseUrl, secret }: AuthOptions) {
         "/send-verification-email": { window: 60, max: 5 },
       },
     },
+    /**
+     * The password policy runs before the request that would store it. It
+     * checks length, a blocklist of what people actually pick, the person's own
+     * name and address, and — best effort — the breach corpus. What it
+     * deliberately does not do is demand an uppercase, a digit and a symbol:
+     * that rule produces `Senha@123`, which is in every breach list.
+     */
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        if (!PASSWORD_PATHS.includes(ctx.path)) return;
+
+        const body = (ctx.body ?? {}) as {
+          password?: string;
+          newPassword?: string;
+          email?: string;
+          name?: string;
+        };
+        const password = body.newPassword ?? body.password;
+        if (!password) return;
+
+        const decision = await checkPassword(
+          password,
+          { email: body.email, name: body.name },
+          { checkBreaches },
+        );
+
+        if (decision.kind === "refused") {
+          throw new APIError("BAD_REQUEST", {
+            message: PASSWORD_MESSAGES[decision.reason],
+            code: "WEAK_PASSWORD",
+          });
+        }
+      }),
+    },
     plugins: [nextCookies()],
   });
 }
@@ -122,6 +183,8 @@ export function getAuth(): Auth {
     sender: senderFromEnvironment(),
     baseUrl: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
     secret: requireSecret(),
+    // The E2E suite turns the breach lookup off so it stays hermetic.
+    checkBreaches: process.env["DISABLE_BREACH_CHECK"] !== "1",
   });
 
   return instance;
@@ -133,6 +196,13 @@ export function getAuth(): Auth {
  * configure — fails loudly rather than signing sessions with a secret that is
  * published in this file.
  */
+/** Replaces the callback the framework put in the verification link. */
+function withCallback(url: string, callback: string): string {
+  const parsed = new URL(url);
+  parsed.searchParams.set("callbackURL", callback);
+  return parsed.toString();
+}
+
 function requireSecret(): string {
   const secret = process.env.BETTER_AUTH_SECRET;
   if (secret && secret.length >= 32) return secret;

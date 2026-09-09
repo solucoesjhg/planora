@@ -1,7 +1,11 @@
 "use client";
 
+import { MailCheck } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+
+import { Field, Input } from "@/components/ui/field";
 import { signUp } from "@/lib/auth-client";
 
 export default function RegisterPage() {
@@ -31,66 +35,70 @@ export default function RegisterPage() {
 
   if (sent) {
     return (
-      <section>
-        <h1 className="text-xl font-semibold">Confirme seu e-mail</h1>
-        <p className="mt-3 text-sm">
-          Enviamos um link de confirmação. Abra-o para ativar sua conta.
+      <section className="flex flex-col items-center gap-3 py-2 text-center">
+        <span className="rounded-full border border-line bg-surface p-3 text-sage">
+          <MailCheck size={18} aria-hidden />
+        </span>
+        <h1 className="pln-display text-2xl text-primary">Confirme seu e-mail</h1>
+        <p className="text-[13px] text-secondary">
+          Enviamos um link de confirmação. Ele vale por 15 minutos.
         </p>
       </section>
     );
   }
 
   return (
-    <section>
-      <h1 className="text-xl font-semibold">Criar conta</h1>
+    <section className="flex flex-col gap-6">
+      <header className="flex flex-col gap-1">
+        <h1 className="pln-display text-2xl text-primary">Criar conta</h1>
+        <p className="text-[13px] text-secondary">
+          Seu espaço de trabalho nasce junto com ela.
+        </p>
+      </header>
 
-      <form onSubmit={onSubmit} className="mt-6 flex flex-col gap-3">
-        <label className="flex flex-col gap-1 text-sm">
-          Nome
-          <input name="name" required autoComplete="name" className="rounded border px-3 py-2" />
-        </label>
+      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+        <Field label="Nome">
+          {(id) => <Input id={id} name="name" required autoComplete="name" />}
+        </Field>
 
-        <label className="flex flex-col gap-1 text-sm">
-          E-mail
-          <input
-            name="email"
-            type="email"
-            required
-            autoComplete="email"
-            className="rounded border px-3 py-2"
-          />
-        </label>
+        <Field label="E-mail">
+          {(id) => (
+            <Input id={id} name="email" type="email" required autoComplete="email" />
+          )}
+        </Field>
 
-        <label className="flex flex-col gap-1 text-sm">
-          Senha
-          <input
-            name="password"
-            type="password"
-            required
-            minLength={10}
-            autoComplete="new-password"
-            className="rounded border px-3 py-2"
-          />
-          <span className="text-xs opacity-70">Ao menos 10 caracteres.</span>
-        </label>
+        <Field
+          label="Senha"
+          hint="Ao menos 8 caracteres. Uma frase que só você diria vale mais que símbolos."
+        >
+          {(id) => (
+            <Input
+              id={id}
+              name="password"
+              type="password"
+              required
+              minLength={8}
+              autoComplete="new-password"
+            />
+          )}
+        </Field>
 
         {error ? (
-          <p role="alert" className="text-sm text-red-700">
+          <p role="alert" className="text-[13px] text-danger">
             {error}
           </p>
         ) : null}
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="mt-2 rounded bg-black px-3 py-2 text-white disabled:opacity-60"
-        >
+        <Button type="submit" variant="primary" disabled={busy}>
           {busy ? "Criando..." : "Criar conta"}
-        </button>
+        </Button>
       </form>
 
-      <p className="mt-4 text-sm">
-        Já tem conta? <Link href="/login" className="underline">Entrar</Link>
+      <p className="text-[13px] text-secondary">
+        Já tem conta?{" "}
+        <Link href="/login" className="text-sienna underline-offset-4 hover:underline">
+          Entrar
+        </Link>
       </p>
     </section>
   );

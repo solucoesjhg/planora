@@ -1,8 +1,8 @@
 # Status
 
-**Phases 0, 1 and 2 are merged.**
-**Phase 3 is on the branch `phase-3-auth`** — everything except the deployed
-environment, which was deliberately left out (see below).
+**Phases 0 to 3 are merged** — Phase 3 without its deployed environment, which
+was deliberately left out.
+**Phase 4 is on the branch `phase-4-design-system`.**
 
 Remote: https://github.com/solucoesjhg/planora (private)
 
@@ -32,15 +32,24 @@ Mailpit, memory); workspace invitations with expiry; and plain `/register`,
 `/login`, `/dashboard` and `/invitations/[token]` pages that Phase 4 will
 restyle.
 
+**Phase 4 — design system and shell** (this branch). The v1 kit ported into
+`src/styles/tokens.css` and exposed as Tailwind v4 `@theme` utilities; dark by
+default with a bone light theme; Cormorant Garamond and Inter; nine primitives
+on Base UI plus a calendar written here; the tri-pane shell with its collapse
+rules; `/dev/ui`; and the auth and dashboard screens restyled. A lint rule
+refuses a raw colour inside `components/`, and 12 E2E tests check the shell at
+five widths in both themes.
+
 ## Next
 
-- Review and merge the Phase 3 branch.
+- Review and merge the Phase 4 branch.
 - **The deployed environment is the one Phase 3 item still open.** A managed
   Supabase project plus a Vercel deployment, so verification and invitation
   links have a real URL, and migrations run from the pipeline. It needs
   accounts on external services, so it waits for a decision.
-- Phase 4 — design system and shell: tokens as Tailwind `@theme`, the
-  primitives, the tri-pane shell and its collapse rules, `/_dev/ui`.
+- Phase 5 — projects and clients: CRUD, the grid split by state, deadline
+  indicators, the validation that refuses to complete a project with open work,
+  the `clients` record, and a seeded example project at signup.
 
 ## Open decisions
 
@@ -82,3 +91,12 @@ restyle.
 - Better Auth reuses an unverified account on a repeated signup rather than
   erroring; the test asserts what matters — no second account, no second
   workspace.
+- The gallery lives at `/dev/ui`, not `/_dev/ui` as the plan first said: Next
+  treats a folder starting with `_` as private and never routes it. The plan
+  was updated to match.
+- The theme toggle keeps no React state. The theme lives in the `data-theme`
+  attribute the tokens read, and CSS picks which icon to show — one source of
+  truth, no effect, and no mismatch with the inline script that applies the
+  stored theme before first paint.
+- The calendar is written here rather than installed: a month grid is a hundred
+  lines, and the arithmetic is testable without a browser.

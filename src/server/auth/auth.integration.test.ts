@@ -49,6 +49,7 @@ suite("signing up", () => {
       sender,
       baseUrl: "http://localhost:3000",
       secret: "test-secret-test-secret-test-secret-32",
+      checkBreaches: false,
     });
   });
 
@@ -117,6 +118,34 @@ suite("signing up", () => {
     expect(counters.length).toBeGreaterThan(0);
   });
 
+  it("refuses a weak password at the endpoint, with a message a person can act on", async () => {
+    const signUp = (password: string, email: string) =>
+      auth.handler(
+        new Request("http://localhost:3000/api/auth/sign-up/email", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: "Henrique Zanella", email, password }),
+        }),
+      );
+
+    const short = await signUp("curta12", "a@example.com");
+    const common = await signUp("senha123", "b@example.com");
+    const own = await signUp("henrique-zanella", "henrique@example.com");
+    const good = await signUp("trilha molhada de barro", "c@example.com");
+
+    expect(short.status).toBe(400);
+    expect(common.status).toBe(400);
+    expect(own.status).toBe(400);
+    expect(good.status).toBe(200);
+
+    expect(((await common.json()) as { message?: string }).message).toContain(
+      "mais usadas",
+    );
+
+    // Only the acceptable one created an account.
+    expect(await connection.db.select().from(users)).toHaveLength(1);
+  });
+
   it("does not duplicate the account or the workspace on a repeated signup", async () => {
     // Better Auth reuses an unverified account and re-sends the verification
     // rather than erroring, which is also what keeps signup from telling a
@@ -161,6 +190,7 @@ suite("resolving a workspace", () => {
       sender: memorySender(),
       baseUrl: "http://localhost:3000",
       secret: "test-secret-test-secret-test-secret-32",
+      checkBreaches: false,
     });
     await auth.api.signUpEmail({ body: { name, email, password } });
 
@@ -255,6 +285,7 @@ suite("invitations", () => {
       sender: memorySender(),
       baseUrl: "http://localhost:3000",
       secret: "test-secret-test-secret-test-secret-32",
+      checkBreaches: false,
     });
     await auth.api.signUpEmail({ body: { name, email, password } });
 

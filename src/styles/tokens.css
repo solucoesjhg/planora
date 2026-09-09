@@ -1,0 +1,214 @@
+/**
+ * Planora design tokens (DEVELOPMENT_PLAN.md §7 Phase 4).
+ *
+ * Ported from the v1 kit in docs/design/. Dark is the product's own world —
+ * matte, editorial, earthy — and it is the default. Light is a warm bone
+ * version of the same palette rather than an inversion, so the accent keeps
+ * working on both grounds.
+ *
+ * Nothing outside this file states a colour. Components read tokens.
+ */
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --pln-bg-app: #0e1110;
+  --pln-bg-app-soft: #101412;
+  --pln-bg-surface: #121614;
+  --pln-bg-panel: #151915;
+  --pln-bg-panel-elevated: #171c18;
+  --pln-bg-card: #181c19;
+  --pln-bg-card-hover: #1b201c;
+  --pln-bg-input: #101412;
+  --pln-bg-overlay: rgba(6, 8, 7, 0.62);
+
+  --pln-text-primary: #eee5d6;
+  --pln-text-secondary: #afa697;
+  --pln-text-muted: #8f887d;
+  --pln-text-subtle: #746e66;
+  --pln-text-disabled: #5d574f;
+  --pln-text-on-accent: #fbf4e8;
+
+  --pln-border-hairline: rgba(232, 221, 200, 0.06);
+  --pln-border-subtle: rgba(232, 221, 200, 0.1);
+  --pln-border-default: rgba(232, 221, 200, 0.14);
+  --pln-border-strong: rgba(232, 221, 200, 0.2);
+
+  --pln-sienna: #a85c3a;
+  --pln-sienna-hover: #b96944;
+  --pln-sienna-muted: #7a3f2d;
+  --pln-sienna-soft: rgba(168, 92, 58, 0.14);
+  --pln-gold: #c4a35a;
+  --pln-stormy: #6f7f8c;
+  --pln-sage: #6ea47a;
+
+  --pln-success: #6ea47a;
+  --pln-warning: #c4a35a;
+  --pln-danger: #d57964;
+  --pln-info: #6f9cb1;
+
+  --pln-phase-planning: #c4a35a;
+  --pln-phase-execution: #6f7f8c;
+  --pln-phase-review: #c4a35a;
+  --pln-phase-done: #6ea47a;
+
+  --pln-priority-high: #d57964;
+  --pln-priority-medium: #c4a35a;
+  --pln-priority-low: #6f9cb1;
+
+  --pln-shadow-card: 0 16px 35px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  --pln-shadow-panel: 0 18px 50px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  --pln-shadow-popup: 0 24px 60px rgba(0, 0, 0, 0.42);
+
+  /* The top glow and the grain that make the ground matte rather than flat. */
+  --pln-app-glow: rgba(255, 255, 255, 0.035);
+  --pln-app-sheen: rgba(255, 255, 255, 0.018);
+  --pln-noise-opacity: 0.055;
+  --pln-noise-blend: screen;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+
+    --pln-bg-app: #f2eee5;
+    --pln-bg-app-soft: #f5f2ea;
+    --pln-bg-surface: #faf7f0;
+    --pln-bg-panel: #fbf8f2;
+    --pln-bg-panel-elevated: #fffdf8;
+    --pln-bg-card: #fffdf8;
+    --pln-bg-card-hover: #f7f3ea;
+    --pln-bg-input: #fffdf8;
+    --pln-bg-overlay: rgba(25, 29, 26, 0.34);
+
+    --pln-text-primary: #191d1a;
+    --pln-text-secondary: #4c524b;
+    --pln-text-muted: #6d7269;
+    --pln-text-subtle: #7a776d;
+    --pln-text-disabled: #a09c92;
+    --pln-text-on-accent: #fdf9f3;
+
+    --pln-border-hairline: rgba(25, 29, 26, 0.06);
+    --pln-border-subtle: rgba(25, 29, 26, 0.1);
+    --pln-border-default: rgba(25, 29, 26, 0.14);
+    --pln-border-strong: rgba(25, 29, 26, 0.22);
+
+    --pln-sienna: #8f4a2b;
+    --pln-sienna-hover: #7d3f23;
+    --pln-sienna-muted: #a86a4c;
+    --pln-sienna-soft: rgba(143, 74, 43, 0.1);
+    --pln-gold: #8a6b1e;
+    --pln-stormy: #4e6070;
+    --pln-sage: #3b7550;
+
+    --pln-success: #3b7550;
+    --pln-warning: #8a6b1e;
+    --pln-danger: #a5432a;
+    --pln-info: #3f6b80;
+
+    --pln-phase-planning: #8a6b1e;
+    --pln-phase-execution: #4e6070;
+    --pln-phase-review: #8a6b1e;
+    --pln-phase-done: #3b7550;
+
+    --pln-priority-high: #a5432a;
+    --pln-priority-medium: #8a6b1e;
+    --pln-priority-low: #3f6b80;
+
+    --pln-shadow-card: 0 1px 2px rgba(25, 29, 26, 0.05),
+      0 10px 26px rgba(25, 29, 26, 0.06);
+    --pln-shadow-panel: 0 1px 2px rgba(25, 29, 26, 0.05),
+      0 12px 30px rgba(25, 29, 26, 0.07);
+    --pln-shadow-popup: 0 20px 50px rgba(25, 29, 26, 0.16);
+
+    --pln-app-glow: rgba(255, 255, 255, 0.6);
+    --pln-app-sheen: rgba(255, 255, 255, 0.5);
+    --pln-noise-opacity: 0.035;
+    --pln-noise-blend: multiply;
+  }
+}
+
+/* The explicit choice wins over the operating system, in both directions. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --pln-bg-app: #f2eee5;
+  --pln-bg-app-soft: #f5f2ea;
+  --pln-bg-surface: #faf7f0;
+  --pln-bg-panel: #fbf8f2;
+  --pln-bg-panel-elevated: #fffdf8;
+  --pln-bg-card: #fffdf8;
+  --pln-bg-card-hover: #f7f3ea;
+  --pln-bg-input: #fffdf8;
+  --pln-bg-overlay: rgba(25, 29, 26, 0.34);
+
+  --pln-text-primary: #191d1a;
+  --pln-text-secondary: #4c524b;
+  --pln-text-muted: #6d7269;
+  --pln-text-subtle: #7a776d;
+  --pln-text-disabled: #a09c92;
+  --pln-text-on-accent: #fdf9f3;
+
+  --pln-border-hairline: rgba(25, 29, 26, 0.06);
+  --pln-border-subtle: rgba(25, 29, 26, 0.1);
+  --pln-border-default: rgba(25, 29, 26, 0.14);
+  --pln-border-strong: rgba(25, 29, 26, 0.22);
+
+  --pln-sienna: #8f4a2b;
+  --pln-sienna-hover: #7d3f23;
+  --pln-sienna-muted: #a86a4c;
+  --pln-sienna-soft: rgba(143, 74, 43, 0.1);
+  --pln-gold: #8a6b1e;
+  --pln-stormy: #4e6070;
+  --pln-sage: #3b7550;
+
+  --pln-success: #3b7550;
+  --pln-warning: #8a6b1e;
+  --pln-danger: #a5432a;
+  --pln-info: #3f6b80;
+
+  --pln-phase-planning: #8a6b1e;
+  --pln-phase-execution: #4e6070;
+  --pln-phase-review: #8a6b1e;
+  --pln-phase-done: #3b7550;
+
+  --pln-priority-high: #a5432a;
+  --pln-priority-medium: #8a6b1e;
+  --pln-priority-low: #3f6b80;
+
+  --pln-shadow-card: 0 1px 2px rgba(25, 29, 26, 0.05),
+    0 10px 26px rgba(25, 29, 26, 0.06);
+  --pln-shadow-panel: 0 1px 2px rgba(25, 29, 26, 0.05),
+    0 12px 30px rgba(25, 29, 26, 0.07);
+  --pln-shadow-popup: 0 20px 50px rgba(25, 29, 26, 0.16);
+
+  --pln-app-glow: rgba(255, 255, 255, 0.6);
+  --pln-app-sheen: rgba(255, 255, 255, 0.5);
+  --pln-noise-opacity: 0.035;
+  --pln-noise-blend: multiply;
+}
+
+/* Measurements the v1 kit fixed, and the board still depends on. */
+:root {
+  --pln-rail-w: 238px;
+  --pln-panel-w: 338px;
+  --pln-main-px: 40px;
+  --pln-main-py: 28px;
+  --pln-header-min-h: 116px;
+  --pln-filterbar-h: 72px;
+  --pln-column-w: 300px;
+  --pln-column-gap: 12px;
+  --pln-card-min-h: 114px;
+  --pln-card-p: 16px;
+
+  --pln-radius-control: 10px;
+  --pln-radius-card: 10px;
+  --pln-radius-column: 12px;
+  --pln-radius-panel: 14px;
+
+  --pln-transition-fast: 160ms ease;
+  --pln-transition-normal: 220ms ease;
+}

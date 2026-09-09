@@ -54,10 +54,46 @@ const domainBoundary = {
   },
 };
 
+/**
+ * The token boundary (DEVELOPMENT_PLAN.md §7 Phase 4).
+ *
+ * Colour is declared once, in `src/styles/tokens.css`, and reaches components
+ * as a utility built from a token. A hex literal in a component is how a
+ * design system turns into a pile of nearly-matching greens — and it is also
+ * how a dark-only value ends up unreadable in the light theme.
+ */
+const tokenBoundary = {
+  files: ["src/components/**/*.{ts,tsx}", "src/features/**/*.{ts,tsx}"],
+  rules: {
+    "no-restricted-syntax": [
+      "error",
+      {
+        selector:
+          "Literal[value=/#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-fA-F])/]",
+        message:
+          "Colour belongs in src/styles/tokens.css and arrives as a utility. See DEVELOPMENT_PLAN.md §7 Phase 4.",
+      },
+      {
+        selector:
+          "TemplateElement[value.raw=/#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-fA-F])/]",
+        message:
+          "Colour belongs in src/styles/tokens.css and arrives as a utility. See DEVELOPMENT_PLAN.md §7 Phase 4.",
+      },
+      {
+        selector:
+          "Literal[value=/\\b(?:rgba?|hsla?)\\s*\\(/]",
+        message:
+          "Colour belongs in src/styles/tokens.css and arrives as a utility. See DEVELOPMENT_PLAN.md §7 Phase 4.",
+      },
+    ],
+  },
+};
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   domainBoundary,
+  tokenBoundary,
   // Override default ignores of eslint-config-next.
   globalIgnores([
     ".next/**",
