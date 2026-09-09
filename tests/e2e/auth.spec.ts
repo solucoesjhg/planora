@@ -26,7 +26,9 @@ test("signing up leads to a verified account with a workspace", async ({
   const verificationUrl = await waitForVerificationLink(request, email);
   await page.goto(verificationUrl);
 
-  await page.goto("/dashboard");
+  // Verification signs the person in, so the link lands where signed-in people
+  // go — not on the marketing page.
+  await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole("heading", { name: "Painel" })).toBeVisible();
 
   // The workspace exists the moment the account does: the context panel says
@@ -35,6 +37,16 @@ test("signing up leads to a verified account with a workspace", async ({
 
   await page.getByRole("button", { name: "Conta" }).click();
   await expect(page.getByText(email)).toBeVisible();
+});
+
+test("the front door is the product's, not the framework's", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(
+    page.getByRole("heading", { name: /O quadro que sabe/ }),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Criar conta" })).toBeVisible();
+  await expect(page.getByText("To get started, edit")).toHaveCount(0);
 });
 
 test("the proxy sends a visitor to the login page", async ({ page }) => {

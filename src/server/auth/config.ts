@@ -65,7 +65,14 @@ export function createAuth({ database, sender, baseUrl, secret }: AuthOptions) {
       autoSignInAfterVerification: true,
       sendVerificationEmail: async ({ user, url }) => {
         await sender.send(
-          verificationEmail({ to: user.email, name: user.name, url }),
+          verificationEmail({
+            to: user.email,
+            name: user.name,
+            // Better Auth defaults the callback to "/", which would land a
+            // freshly verified account on the marketing page. Verification
+            // signs them in, so it should land where signed-in people go.
+            url: withCallback(url, "/dashboard"),
+          }),
         );
       },
     },
@@ -133,6 +140,13 @@ export function getAuth(): Auth {
  * configure — fails loudly rather than signing sessions with a secret that is
  * published in this file.
  */
+/** Replaces the callback the framework put in the verification link. */
+function withCallback(url: string, callback: string): string {
+  const parsed = new URL(url);
+  parsed.searchParams.set("callbackURL", callback);
+  return parsed.toString();
+}
+
 function requireSecret(): string {
   const secret = process.env.BETTER_AUTH_SECRET;
   if (secret && secret.length >= 32) return secret;
