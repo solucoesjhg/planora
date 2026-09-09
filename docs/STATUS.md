@@ -32,12 +32,12 @@ CI `database` job.
 
 ## Blocked / open
 
-- **Docker does not run on this machine: WSL is not installed.** Docker Desktop
-  4.90 is installed and its CLI works, but the engine cannot start without the
-  Windows Subsystem for Linux. Fix: run `wsl --install` in an elevated
-  PowerShell, reboot, then start Docker Desktop. Until then the integration
-  suite skips itself locally (`pnpm test:db` needs `DATABASE_URL`) and is proved
-  only in CI.
+- **The Supabase CLI stack is deferred to Phase 7.** What it buys over a plain
+  Postgres is Storage parity, and Storage does not arrive until then. Local
+  development runs `docker compose up -d` — one `postgres:17` on port 54322, the
+  same port the CLI stack uses, so `DATABASE_URL` will not change when we
+  switch. This is the fallback §9.1 anticipated, taken deliberately rather than
+  by accident.
 - No CLI seed script yet: the seed is exercised by the integration tests. A
   `db:seed` command belongs with the `/_dev` routes in Phase 4.
 - CI warns that `actions/checkout@v4`, `actions/setup-node@v4` and
