@@ -8,6 +8,7 @@
 
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { ok, refused, type Result } from "@/lib/result";
+import { hashToken, randomToken } from "@/lib/token";
 import { can, type Role, type TenantContext } from "@/server/auth/tenant";
 import type { Database } from "@/server/db/client";
 import {
@@ -64,7 +65,7 @@ export async function inviteMember(
       workspaceId: context.workspaceId,
       email,
       role: input.role ?? "member",
-      token,
+      tokenHash: await hashToken(token),
       invitedBy: context.userId,
       expiresAt,
     })
@@ -105,19 +106,22 @@ export async function acceptInvitation(
 ): Promise<Result<{ workspaceId: string; role: Role }, AcceptFailure>> {
   const now = input.now ?? new Date();
 
+  const tokenHash = await hashToken(input.token);
+
   return db.transaction(async (tx) => {
     const [invitation] = await tx
       .select()
       .from(workspaceInvitations)
       .where(
         and(
-          eq(workspaceInvitations.token, input.token),
+          eq(workspaceInvitations.tokenHash, tokenHash),
           isNull(workspaceInvitations.acceptedAt),
         ),
       )
       .limit(1);
 
-    if (!invitation) return refused("invalid-token", input.token.slice(0, 8));
+    // The token is never echoed back: an error message is not a lookup service.
+    if (!invitation) return refused("invalid-token");
     if (invitation.expiresAt.getTime() <= now.getTime()) {
       return refused("expired", invitation.expiresAt.toISOString());
     }
@@ -176,8 +180,3 @@ export async function pendingInvitations(
     );
 }
 
-function randomToken(): string {
-  const bytes = new Uint8Array(24);
-  crypto.getRandomValues(bytes);
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}

@@ -15,7 +15,10 @@ import { notFound, redirect } from "next/navigation";
 import type { TenantContext } from "@/server/auth/tenant";
 import { getAuth } from "@/server/auth/config";
 import { getDatabase } from "@/server/db/client";
-import { resolveTenantContext } from "@/server/modules/workspaces/repository";
+import {
+  ensurePersonalWorkspace,
+  resolveTenantContext,
+} from "@/server/modules/workspaces/repository";
 
 export type Session = {
   readonly userId: string;
@@ -46,14 +49,31 @@ export const requireSession = cache(async (): Promise<Session> => {
 export const requireWorkspace = cache(
   async (workspaceId?: string): Promise<TenantContext> => {
     const session = await requireSession();
+    const database = getDatabase();
+
     const context = await resolveTenantContext(
-      getDatabase(),
+      database,
       session.userId,
       workspaceId,
     );
+    if (context) return context;
 
-    if (!context) notFound();
-    return context;
+    // Asking for a specific workspace and not being a member of it is a 404,
+    // always. Having no workspace at all is a different thing: the signup hook
+    // runs outside the account's transaction, so it can fail after the account
+    // exists. Repair it here rather than locking someone out of their own
+    // account.
+    if (workspaceId) notFound();
+
+    await ensurePersonalWorkspace(database, {
+      id: session.userId,
+      name: session.name,
+      email: session.email,
+    });
+
+    const repaired = await resolveTenantContext(database, session.userId);
+    if (!repaired) notFound();
+    return repaired;
   },
 );
 

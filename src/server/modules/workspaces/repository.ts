@@ -5,10 +5,10 @@
  * a user id, which is what keeps them testable without a browser.
  */
 
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { keyBetween } from "@/domain/kanban";
 import type { Role, TenantContext } from "@/server/auth/tenant";
-import type { Executor } from "@/server/db/client";
+import type { Database, Executor } from "@/server/db/client";
 import { workspaceMembers, workspaces } from "@/server/db/schema";
 
 export type Membership = {
@@ -61,7 +61,30 @@ export async function resolveTenantContext(
 /**
  * Signing up gives you a workspace of your own. Nothing of value in this
  * product sits behind "invite your team first" (§6.1).
+ *
+ * Idempotent, and safe to call from two requests at once: it takes a row lock
+ * on the user before deciding, so the second caller sees the first one's work
+ * instead of creating a second workspace. Better Auth's `after` hook runs
+ * outside the transaction that created the account, so this is also the repair
+ * path — an account that somehow has no workspace gets one on first use rather
+ * than a 404.
  */
+export async function ensurePersonalWorkspace(
+  db: Database,
+  user: { id: string; name: string; email: string },
+): Promise<string> {
+  return db.transaction(async (tx) => {
+    // Serializes concurrent repairs for this user, and nothing else.
+    await tx.execute(sql`select id from users where id = ${user.id} for update`);
+
+    const existing = await membershipsOf(tx, user.id);
+    const owned = existing.find((membership) => membership.role === "owner");
+    if (owned) return owned.workspaceId;
+
+    return createPersonalWorkspace(tx, user);
+  });
+}
+
 export async function createPersonalWorkspace(
   executor: Executor,
   user: { id: string; name: string; email: string },

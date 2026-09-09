@@ -41,12 +41,12 @@ CREATE TABLE "workspace_invitations" (
 	"workspace_id" uuid NOT NULL,
 	"email" text NOT NULL,
 	"role" text DEFAULT 'member' NOT NULL,
-	"token" text NOT NULL,
+	"token_hash" text NOT NULL,
 	"invited_by" uuid NOT NULL,
 	"expires_at" timestamp with time zone NOT NULL,
 	"accepted_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "workspace_invitations_token_unique" UNIQUE("token"),
+	CONSTRAINT "workspace_invitations_token_hash_unique" UNIQUE("token_hash"),
 	CONSTRAINT "workspace_invitations_role" CHECK (role in ('owner', 'admin', 'manager', 'member', 'viewer'))
 );
 --> statement-breakpoint

@@ -17,7 +17,7 @@ import {
   resetPasswordEmail,
   verificationEmail,
 } from "@/server/email/templates";
-import { createPersonalWorkspace } from "@/server/modules/workspaces/repository";
+import { ensurePersonalWorkspace } from "@/server/modules/workspaces/repository";
 
 export type AuthOptions = {
   readonly database: Database;
@@ -64,8 +64,10 @@ export function createAuth({ database, sender, baseUrl, secret }: AuthOptions) {
       user: {
         create: {
           after: async (user) => {
-            // Signing up gives you a workspace of your own (§6.1).
-            await createPersonalWorkspace(database, {
+            // Signing up gives you a workspace of your own (§6.1). This hook
+            // runs outside the account's transaction, so the DAL repeats the
+            // call on first use — both paths are the same idempotent function.
+            await ensurePersonalWorkspace(database, {
               id: user.id,
               name: user.name,
               email: user.email,
@@ -96,14 +98,21 @@ export function getAuth(): Auth {
   return instance;
 }
 
+/**
+ * The fallback is for a developer's own machine and nowhere else. Anything that
+ * is not `development` — staging, preview, a container someone forgot to
+ * configure — fails loudly rather than signing sessions with a secret that is
+ * published in this file.
+ */
 function requireSecret(): string {
   const secret = process.env.BETTER_AUTH_SECRET;
   if (secret && secret.length >= 32) return secret;
 
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("BETTER_AUTH_SECRET must be set to at least 32 characters");
+  if (process.env.NODE_ENV !== "development") {
+    throw new Error(
+      "BETTER_AUTH_SECRET must be set to at least 32 characters outside development",
+    );
   }
 
-  // Development only, and deliberately obvious in a diff.
   return "planora-development-secret-planora-development-secret";
 }

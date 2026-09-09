@@ -1,5 +1,5 @@
 {
-  "id": "c845ec26-775f-4057-b074-9252dd9d44a5",
+  "id": "2afb802f-9e58-419f-9a08-5a65c280da29",
   "prevId": "e6eb5f5e-f131-4097-8e23-2cafe6ab84e1",
   "version": "7",
   "dialect": "postgresql",
@@ -1833,8 +1833,8 @@
           "notNull": true,
           "default": "'member'"
         },
-        "token": {
-          "name": "token",
+        "token_hash": {
+          "name": "token_hash",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -1940,11 +1940,11 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "workspace_invitations_token_unique": {
-          "name": "workspace_invitations_token_unique",
+        "workspace_invitations_token_hash_unique": {
+          "name": "workspace_invitations_token_hash_unique",
           "nullsNotDistinct": false,
           "columns": [
-            "token"
+            "token_hash"
           ]
         }
       },

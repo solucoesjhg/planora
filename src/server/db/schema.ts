@@ -175,7 +175,11 @@ export const workspaceInvitations = pgTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
     role: text("role").notNull().default("member"),
-    token: text("token").notNull().unique(),
+    /**
+     * SHA-256 of the token that was emailed. The token itself is never stored,
+     * so a copy of this table cannot be replayed as a pile of live invitations.
+     */
+    tokenHash: text("token_hash").notNull().unique(),
     invitedBy: uuid("invited_by")
       .notNull()
       .references(() => users.id),

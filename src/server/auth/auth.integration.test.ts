@@ -3,10 +3,17 @@ import { eq } from "drizzle-orm";
 import { isRefused } from "@/lib/result";
 import { createAuth } from "@/server/auth/config";
 import type { Connection } from "@/server/db/client";
-import { users, workspaceMembers, workspaces } from "@/server/db/schema";
+import {
+  users,
+  workspaceInvitations,
+  workspaceMembers,
+  workspaces,
+} from "@/server/db/schema";
 import { resetDatabase } from "@/server/db/seed";
 import { memorySender } from "@/server/email/sender";
+import { hashToken } from "@/lib/token";
 import {
+  ensurePersonalWorkspace,
   membershipsOf,
   resolveTenantContext,
 } from "@/server/modules/workspaces/repository";
@@ -159,6 +166,40 @@ suite("resolving a workspace", () => {
       await resolveTenantContext(connection.db, ana.userId, henrique.workspaceId),
     ).toBeNull();
   });
+
+  it("repairs an account that ended up with no workspace", async () => {
+    const henrique = await register("Henrique", "h@example.com");
+
+    // The signup hook runs outside the account's transaction, so this is the
+    // state a failure there would leave behind.
+    await connection.db
+      .delete(workspaces)
+      .where(eq(workspaces.id, henrique.workspaceId));
+    expect(await resolveTenantContext(connection.db, henrique.userId)).toBeNull();
+
+    const repaired = await ensurePersonalWorkspace(connection.db, {
+      id: henrique.userId,
+      name: "Henrique",
+      email: "h@example.com",
+    });
+
+    const context = await resolveTenantContext(connection.db, henrique.userId);
+    expect(context?.workspaceId).toBe(repaired);
+    expect(context?.role).toBe("owner");
+  });
+
+  it("does not hand out a second workspace when called twice at once", async () => {
+    const henrique = await register("Henrique", "h@example.com");
+    const user = { id: henrique.userId, name: "Henrique", email: "h@example.com" };
+
+    const results = await Promise.all([
+      ensurePersonalWorkspace(connection.db, user),
+      ensurePersonalWorkspace(connection.db, user),
+    ]);
+
+    expect(results[0]).toBe(results[1]);
+    expect(await membershipsOf(connection.db, henrique.userId)).toHaveLength(1);
+  });
 });
 
 suite("invitations", () => {
@@ -226,6 +267,25 @@ suite("invitations", () => {
       .where(eq(workspaceMembers.workspaceId, owner.workspaceId));
     expect(rows).toHaveLength(2);
     expect(rows.find((row) => row.userId === guest.userId)?.role).toBe("member");
+  });
+
+  it("stores the invitation hashed, never the token itself", async () => {
+    const owner = await register("Henrique", "h@example.com");
+
+    const invited = await inviteMember(
+      connection.db,
+      { workspaceId: owner.workspaceId, userId: owner.userId, role: "owner" },
+      {
+        email: "convidada@example.com",
+        baseUrl: "http://localhost:3000",
+        sender: memorySender(),
+      },
+    );
+    if (isRefused(invited)) throw new Error("expected an invitation");
+
+    const [row] = await connection.db.select().from(workspaceInvitations);
+    expect(row?.tokenHash).toBe(await hashToken(invited.value.token));
+    expect(JSON.stringify(row)).not.toContain(invited.value.token);
   });
 
   it("refuses a member who cannot manage members", async () => {
