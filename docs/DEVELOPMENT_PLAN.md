@@ -439,7 +439,7 @@ Each row is the decision in force. Several carry a fallback if the choice disapp
 | Email | Resend in production · a local inbox in development | Account verification, password reset and invitations need real delivery in Phase 3 |
 | UI | Tailwind v4 (`@theme`) · shadcn/ui on Base UI · Lucide | Planora's tokens become theme variables; accessible primitives without rewriting them |
 | Motion | Framer Motion, sparingly | The Drop Catch bounce and little else |
-| State | TanStack Query · Zustand | Query only where there is optimistic mutation (the board); Zustand only for ephemeral UI state |
+| State | `useOptimistic` + Server Actions · Zustand | The server owns the data; the client holds a pending move until the revalidation lands. Phase 6 found no need for a client cache — TanStack Query joins the moment a screen fetches on its own. Zustand only for ephemeral UI state |
 | Forms | React Hook Form · Zod v4 | One schema per action, reused as the AI's structured output in Phase 12 |
 | Interaction | dnd-kit · Tiptap 3 | Kanban drag, and the task as an operational document |
 | Charts | Recharts | Carried over from the v1 dashboard; the chart set here is small and it covers it |
@@ -632,7 +632,7 @@ The order is negotiable in most places and non-negotiable in one: **the domain c
 #### Phase 6 · Kanban
 
 - Board rendered on the server with a client island for the drag
-- dnd-kit with the fractional index and optimistic mutation through TanStack Query
+- dnd-kit with the fractional index, the move applied optimistically with `useOptimistic` and confirmed by the Server Action
 - **Drop Catch** consuming `canMoveTask()` on the client and in the service
 - Dynamic columns typed by phase, edge scrolling, per-project scroll memory
 

@@ -6,7 +6,7 @@
  * anything — that is the service's job, and the rule's.
  */
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { BoardColumn, BoardContext, Task } from "@/domain/types";
 import type { TenantContext } from "@/server/auth/tenant";
 import type { Executor } from "@/server/db/client";
@@ -166,6 +166,25 @@ export async function lastPositionIn(
     );
 
   return row?.position ?? null;
+}
+
+/** The ordering keys of specific tasks, for placing a card between two others. */
+export async function positionsOfTasks(
+  executor: Executor,
+  context: TenantContext,
+  ids: readonly string[],
+): Promise<Map<string, string>> {
+  const wanted = ids.filter((id): id is string => Boolean(id));
+  if (wanted.length === 0) return new Map();
+
+  const rows = await executor
+    .select({ id: tasks.id, position: tasks.position })
+    .from(tasks)
+    .where(
+      and(eq(tasks.workspaceId, context.workspaceId), inArray(tasks.id, wanted)),
+    );
+
+  return new Map(rows.map((row) => [row.id, row.position]));
 }
 
 export type MovePatch = {

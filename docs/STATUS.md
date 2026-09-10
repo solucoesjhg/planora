@@ -1,8 +1,8 @@
 # Status
 
-**Phases 0 to 4 are merged** — Phase 3 without its deployed environment, which
+**Phases 0 to 5 are merged** — Phase 3 without its deployed environment, which
 was deliberately left out.
-**Phase 5 is on the branch `phase-5-projects`.**
+**Phase 6 is on the branch `phase-6-kanban`.**
 
 Remote: https://github.com/solucoesjhg/planora (private)
 
@@ -40,22 +40,30 @@ rules; `/dev/ui`; and the auth and dashboard screens restyled. A lint rule
 refuses a raw colour inside `components/`, and 12 E2E tests check the shell at
 five widths in both themes.
 
-**Phase 5 — projects and clients** (this branch). `canCompleteProject` in the
+**Phase 5 — projects and clients.** `canCompleteProject` in the
 domain; the `clients` table and `projects.client_id`; project CRUD, completion,
 reopening and drag-to-reorder through services and Server Actions; the grid
 split between active and completed with deadline indicators; and an example
 project seeded at signup so the first screen has something on it.
 
+**Phase 6 — Kanban** (this branch). The board is a Server Component; a single
+client island owns the drag. Drop Catch calls the same `canMoveTask()` the
+service calls, so a refused move bounces with its reason and **never reaches the
+network** — the E2E test counts the requests. Columns are created, renamed,
+reordered and deleted with their phase, planning and done staying at the ends;
+a move between two neighbours writes one row; the board remembers where each
+project was scrolled to.
+
 ## Next
 
-- Review and merge the Phase 5 branch.
+- Review and merge the Phase 6 branch.
 - **The deployed environment is the one Phase 3 item still open.** A managed
   Supabase project plus a Vercel deployment, so verification and invitation
   links have a real URL, and migrations run from the pipeline. It needs
   accounts on external services, so it waits for a decision.
-- Phase 6 — Kanban: the board rendered on the server with a client island for
-  the drag, Drop Catch consuming `canMoveTask()` on both sides, dynamic columns
-  typed by phase, edge scrolling and per-project scroll memory.
+- Phase 7 — the task as a document: the intercepted detail route, Tiptap,
+  checklists, dependencies, comments, attachments on Supabase Storage, and the
+  phase history that archives the previous phase's notes.
 
 ## Open decisions
 
@@ -92,8 +100,21 @@ project seeded at signup so the first screen has something on it.
   raced the uniqueness check. `onConflictDoNothing` claims the slug and falls
   back — and the fallback reads the **end** of the user id, because a UUID v7
   starts with a timestamp and accounts created in the same instant share it.
-- The E2E suite truncates `rate_limits` in a global setup: the limiter stays at
-  production strength rather than being weakened for tests.
+- **The E2E suite works around the limiter rather than weakening it.** Sign-up
+  allows five a minute per address and every Playwright worker is `127.0.0.1`,
+  so a parallel run trips a rule that is doing its job. Clearing the counter
+  before each signup is not enough — the other workers spend it between the
+  clear and the click — so `submitRegistration` clears, submits, and retries
+  when the 429 message appears. The production limit is untouched.
+- **The board's state is `useOptimistic` and Server Actions, not TanStack
+  Query.** The board's data comes from a Server Component and the only mutation
+  is the move, so a client cache would be a second source of truth to keep in
+  sync. §5 and Phase 6 in the plan were updated. TanStack Query arrives when a
+  screen fetches on its own.
+- **The drag overlay renders `TaskCardView`, not `TaskCard`.** The overlay used
+  to render the sortable card, registering the same dnd-kit id twice, and the
+  board stopped answering the mouse. Splitting the presentational card from the
+  sortable wrapper fixed it.
 - `canMoveTask` takes the board context as a named argument; §3.6 was updated.
 - The domain treats a task in `done` as never blocked (§3.4).
 - `bandOf` and `smoothVerdict` are exported so hysteresis can be tested directly.

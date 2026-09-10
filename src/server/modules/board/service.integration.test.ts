@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { isRefused } from "@/lib/result";
 import { tenantContext } from "@/server/auth/tenant";
 import type { Connection } from "@/server/db/client";
@@ -110,6 +110,55 @@ suite("moveTask against a real database", () => {
     const events = await connection.db.select().from(outboxEvents);
     expect(events).toHaveLength(1);
     expect((events[0]?.payload as { forced?: boolean }).forced).toBe(true);
+  });
+
+  it("writes one row when a card lands between two neighbours", async () => {
+    const before = await connection.db
+      .select({
+        id: tasks.id,
+        columnId: tasks.columnId,
+        position: tasks.position,
+      })
+      .from(tasks)
+      .orderBy(asc(tasks.number));
+
+    // Put TSK-1 between the two cards that sit in the review column.
+    const review = seedIds.column(0, 2);
+    const inReview = before.filter((row) => row.columnId === review);
+
+    const result = await moveTask(connection.db, owner(), {
+      taskId: seedIds.task(1),
+      toColumnId: review,
+      afterTaskId: inReview[0]?.id ?? null,
+      beforeTaskId: inReview[1]?.id ?? null,
+    });
+    expect(isRefused(result)).toBe(false);
+
+    const after = await connection.db
+      .select({
+        id: tasks.id,
+        columnId: tasks.columnId,
+        position: tasks.position,
+      })
+      .from(tasks)
+      .orderBy(asc(tasks.number));
+
+    const changed = after.filter((row) => {
+      const previous = before.find((each) => each.id === row.id);
+      return (
+        previous?.columnId !== row.columnId || previous?.position !== row.position
+      );
+    });
+
+    // Exactly one: a fractional index moves a card without reindexing a column.
+    expect(changed).toHaveLength(1);
+    expect(changed[0]?.id).toBe(seedIds.task(1));
+
+    if (inReview[0] && inReview[1]) {
+      const moved = changed[0]!;
+      expect(moved.position > inReview[0].position).toBe(true);
+      expect(moved.position < inReview[1].position).toBe(true);
+    }
   });
 
   it("refuses a viewer, and a workspace that is not the task's", async () => {
