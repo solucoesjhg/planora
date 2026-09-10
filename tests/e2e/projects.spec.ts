@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { test, expect } from "./support/test";
 import { registerAndVerify } from "./support/account";
 
 /**

@@ -128,6 +128,10 @@ export function ProjectGrid({ projects }: ProjectGridProps) {
           </p>
         ) : (
           <DndContext
+            // dnd-kit names its screen-reader region from an internal counter,
+            // which differs between the server's render and the browser's. A
+            // fixed id is the same on both sides.
+            id="project-grid"
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={onDragEnd}

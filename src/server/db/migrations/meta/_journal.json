@@ -36,6 +36,13 @@
       "when": 1788983252261,
       "tag": "0004_position_collation",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789046969588,
+      "tag": "0005_attachments",
+      "breakpoints": true
     }
   ]
 }

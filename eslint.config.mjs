@@ -89,11 +89,24 @@ const tokenBoundary = {
   },
 };
 
+/**
+ * Playwright's fixtures take a callback named `use`, which the React Hooks rule
+ * reads as the `use` hook being called outside a component. There is no React
+ * in the E2E suite.
+ */
+const playwrightFixtures = {
+  files: ["tests/e2e/**/*.ts"],
+  rules: {
+    "react-hooks/rules-of-hooks": "off",
+  },
+};
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   domainBoundary,
   tokenBoundary,
+  playwrightFixtures,
   // Override default ignores of eslint-config-next.
   globalIgnores([
     ".next/**",

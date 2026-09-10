@@ -402,7 +402,7 @@ Application code is where rules live, but a handful of them are cheap to guarant
 outbox_events(id, workspace_id, type, payload jsonb, occurred_at, processed_at, attempts, dedupe_key)
 ```
 
-Event types the MVP emits: `task.created`, `task.moved`, `task.blocked`, `task.unblocked`, `task.completed`, `checklist.completed`, `dependency.resolved`, `project.health_changed`, `member.invited`.
+Event types the MVP emits: `task.created`, `task.moved`, `task.blocked`, `task.unblocked`, `task.completed`, `checklist.completed`, `comment.added`, `dependency.resolved`, `project.health_changed`, `member.invited`.
 
 ### 4.6 Actor, and why automation never signs as a person
 
@@ -449,7 +449,7 @@ Each row is the decision in force. Several carry a fallback if the choice disapp
 
 ### 5.1 The local environment
 
-Development runs against the **Supabase CLI local stack** — Postgres and Storage on the same machine — so that signed URLs, buckets and SQL behave in development the way they behave in production. Email is captured by a local inbox instead of being sent. `.env.example` is versioned; no secret ever is. The repository lives at `~/dev/planora`, for the reason given in §9.2.
+Development runs against **Docker Postgres plus a filesystem storage adapter** — the fallback §9.1 anticipated, taken deliberately when the Supabase CLI stack proved too heavy for this machine. `server/storage/` is a port with three adapters: Supabase Storage, the filesystem, and memory for tests. The filesystem adapter signs its own URLs with the same secret Better Auth uses and serves them from `/api/files`, so an expiring signed URL behaves in development the way it behaves in production; only that folder knows the difference. Supabase is chosen automatically when its credentials are present, and a production build will not fall back to disk unless asked by name with `STORAGE_DRIVER=local`. Email is captured by a local inbox instead of being sent. `.env.example` is versioned; no secret ever is. The repository lives at `~/dev/planora`, for the reason given in §9.2.
 
 ### 5.2 What we deliberately do not add
 
@@ -642,6 +642,7 @@ The order is negotiable in most places and non-negotiable in one: **the domain c
 
 - Intercepted route for the detail view, with a shareable URL
 - Tiptap editor, checklists, dependencies, comments, internal notes, priority, dates, `TSK-N`
+- **Everything an editor writes is sanitized on the server** against an allowlist before it is stored — the body, the notes and the comments are all HTML from a browser we do not control
 - Attachments: direct upload through a signed URL to a private bucket, images dropped into the editor
 - Automatic phase history consolidating the previous phase's notes into the body
 

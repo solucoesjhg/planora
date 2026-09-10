@@ -122,6 +122,107 @@
     mix-blend-mode: var(--pln-noise-blend);
   }
 
+  /**
+   * Everything written in the editor renders through this, in the editor and
+   * on the page — one set of rules for one kind of content, sanitized on the
+   * server against the matching allowlist.
+   */
+  .pln-prose {
+    color: var(--pln-text-secondary);
+    line-height: 1.65;
+  }
+
+  .pln-prose > * + * {
+    margin-top: 0.65em;
+  }
+
+  .pln-prose h1,
+  .pln-prose h2,
+  .pln-prose h3,
+  .pln-prose h4 {
+    font-family: var(--font-cormorant), Georgia, serif;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--pln-text-primary);
+  }
+
+  .pln-prose h3 {
+    font-size: 1.1rem;
+  }
+
+  .pln-prose strong {
+    color: var(--pln-text-primary);
+    font-weight: 600;
+  }
+
+  .pln-prose ul,
+  .pln-prose ol {
+    padding-left: 1.15rem;
+  }
+
+  .pln-prose ul {
+    list-style: disc;
+  }
+
+  .pln-prose ol {
+    list-style: decimal;
+  }
+
+  .pln-prose li::marker {
+    color: var(--pln-text-subtle);
+  }
+
+  .pln-prose blockquote {
+    border-left: 2px solid var(--pln-border-strong);
+    padding-left: 0.75rem;
+    color: var(--pln-text-muted);
+  }
+
+  .pln-prose code {
+    font-size: 0.9em;
+    background: var(--pln-bg-card-hover);
+    border-radius: 4px;
+    padding: 0.1em 0.3em;
+  }
+
+  .pln-prose pre {
+    background: var(--pln-bg-card-hover);
+    border-radius: var(--pln-radius-card);
+    padding: 0.75rem;
+    overflow-x: auto;
+  }
+
+  .pln-prose pre code {
+    background: none;
+    padding: 0;
+  }
+
+  .pln-prose a {
+    color: var(--pln-sienna);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .pln-prose img {
+    border-radius: var(--pln-radius-card);
+    border: 1px solid var(--pln-border-hairline);
+  }
+
+  /* The section a phase leaves behind, filed by `domain/phase-history`. */
+  .pln-prose section[data-phase-note] {
+    border-left: 2px solid var(--pln-border-subtle);
+    padding-left: 0.85rem;
+  }
+
+  /* Tiptap's own empty-state, so the placeholder is visible before typing. */
+  .pln-prose p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    color: var(--pln-text-subtle);
+    float: left;
+    height: 0;
+    pointer-events: none;
+  }
+
   .pln-display {
     font-family: var(--font-cormorant), Georgia, serif;
     font-weight: 500;
