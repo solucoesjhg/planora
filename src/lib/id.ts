@@ -25,6 +25,20 @@ export function newId(at: number = Date.now()): string {
   return format(bytes);
 }
 
+/**
+ * Whether a string could be one of our ids.
+ *
+ * Ids arrive in URLs, where anything can be typed. Postgres rejects a
+ * malformed uuid with an error, not with an empty result, so a loader that
+ * passes one straight through turns `/projects/qualquer-coisa` into a 500 —
+ * which is both a worse answer and a louder one than "not found".
+ */
+export function isId(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value,
+  );
+}
+
 /** A deterministic id for fixtures and seeds: same input, same uuid. */
 export function fixedId(namespace: string, index: number): string {
   const bytes = new Uint8Array(16);

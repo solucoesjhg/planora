@@ -4,17 +4,16 @@ import { redirect } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { requireSession, requireWorkspace } from "@/server/auth/dal";
+import { requireWorkspace } from "@/server/auth/dal";
 import { getDatabase } from "@/server/db/client";
 import { listProjects } from "@/server/modules/projects/repository";
-import { AccountMenu } from "@/app/(app)/dashboard/account-menu";
+import { AccountBar } from "@/features/workspace/account-bar";
 
 /**
  * The rail's "Quadro" entry. A board belongs to a project, so this opens the
  * first active one rather than inventing a board with nothing on it.
  */
 export default async function BoardIndexPage() {
-  const session = await requireSession();
   const workspace = await requireWorkspace();
   const projects = await listProjects(getDatabase(), workspace);
 
@@ -24,7 +23,7 @@ export default async function BoardIndexPage() {
   return (
     <AppShell
       title="Quadro"
-      account={<AccountMenu name={session.name} email={session.email} />}
+      account={<AccountBar />}
     >
       <EmptyState
         icon={FolderKanban}

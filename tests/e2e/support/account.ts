@@ -68,6 +68,22 @@ export async function waitForVerificationLink(
   request: APIRequestContext,
   email: string,
 ): Promise<string> {
+  return waitForLink(request, email, /https?:\/\/[^\s"<>]+verify-email[^\s"<>]*/);
+}
+
+/** The invitation link, from the same local inbox. */
+export async function waitForInvitationLink(
+  request: APIRequestContext,
+  email: string,
+): Promise<string> {
+  return waitForLink(request, email, /https?:\/\/[^\s"<>]+\/invitations\/[^\s"<>]*/);
+}
+
+async function waitForLink(
+  request: APIRequestContext,
+  email: string,
+  pattern: RegExp,
+): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const list = await request.get(`${MAILPIT}/api/v1/messages?limit=50`);
     if (list.ok()) {
@@ -79,9 +95,7 @@ export async function waitForVerificationLink(
       if (match) {
         const detail = await request.get(`${MAILPIT}/api/v1/message/${match.ID}`);
         const body = (await detail.json()) as { Text?: string; HTML?: string };
-        const url = (body.Text ?? body.HTML ?? "").match(
-          /https?:\/\/[^\s"<>]+verify-email[^\s"<>]*/,
-        )?.[0];
+        const url = (body.Text ?? body.HTML ?? "").match(pattern)?.[0];
 
         if (url) return url.replaceAll("&amp;", "&");
       }
@@ -90,5 +104,5 @@ export async function waitForVerificationLink(
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
-  throw new Error(`no verification message arrived for ${email}`);
+  throw new Error(`no message matching ${pattern} arrived for ${email}`);
 }

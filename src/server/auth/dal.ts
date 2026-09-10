@@ -10,11 +10,12 @@
 import "server-only";
 
 import { cache } from "react";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import type { TenantContext } from "@/server/auth/tenant";
 import { getAuth } from "@/server/auth/config";
 import { getDatabase } from "@/server/db/client";
+import { WORKSPACE_COOKIE } from "@/server/modules/workspaces/cookie";
 import {
   ensurePersonalWorkspace,
   resolveTenantContext,
@@ -45,17 +46,25 @@ export const requireSession = cache(async (): Promise<Session> => {
  * The tenant context for this request. A workspace the user is not a member of
  * is `notFound()`, never "forbidden": a stranger should not learn that the
  * workspace exists.
+ *
+ * With no id asked for, the browser's chosen workspace wins — a cookie the
+ * switcher writes. The cookie is a preference, never a permission: membership
+ * is resolved from the database on every request, and a cookie naming a
+ * workspace this person is not in is ignored rather than obeyed, so being
+ * removed from a workspace cannot lock somebody out of their own.
  */
 export const requireWorkspace = cache(
   async (workspaceId?: string): Promise<TenantContext> => {
     const session = await requireSession();
     const database = getDatabase();
 
-    const context = await resolveTenantContext(
-      database,
-      session.userId,
-      workspaceId,
-    );
+    const chosen = workspaceId ?? (await chosenWorkspace());
+    const context =
+      (await resolveTenantContext(database, session.userId, chosen)) ??
+      // The cookie named somewhere they no longer belong.
+      (chosen && !workspaceId
+        ? await resolveTenantContext(database, session.userId)
+        : null);
     if (context) return context;
 
     // Asking for a specific workspace and not being a member of it is a 404,
@@ -76,6 +85,12 @@ export const requireWorkspace = cache(
     return repaired;
   },
 );
+
+/** The workspace this browser last chose, if it chose one. */
+async function chosenWorkspace(): Promise<string | undefined> {
+  const jar = await cookies();
+  return jar.get(WORKSPACE_COOKIE)?.value;
+}
 
 /** For pages that only need to know whether anybody is signed in. */
 export const currentSession = cache(async (): Promise<Session | null> => {

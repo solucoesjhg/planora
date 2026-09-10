@@ -6,6 +6,7 @@
  * every task into memory to count it.
  */
 
+import { isId } from "@/lib/id";
 import type { CalendarDate } from "@/domain/types";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { keyBetween } from "@/domain/kanban";
@@ -106,6 +107,8 @@ export async function findProject(
   context: TenantContext,
   projectId: string,
 ): Promise<ProjectRow | null> {
+  if (!isId(projectId)) return null;
+
   const [row] = await executor
     .select()
     .from(projects)

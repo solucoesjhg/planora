@@ -4,10 +4,10 @@ import { ArrowLeft } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { ToastProvider } from "@/components/ui/toast";
 import { TaskDocument } from "@/features/tasks/task-document";
-import { requireSession, requireWorkspace } from "@/server/auth/dal";
+import { requireWorkspace } from "@/server/auth/dal";
 import { getDatabase } from "@/server/db/client";
 import { loadTaskView } from "@/server/modules/tasks/view";
-import { AccountMenu } from "@/app/(app)/dashboard/account-menu";
+import { AccountBar } from "@/features/workspace/account-bar";
 
 /**
  * The task's own page — the URL that can be shared, and what somebody who
@@ -18,7 +18,6 @@ export default async function TaskPage({
   params,
 }: PageProps<"/projects/[projectId]/tasks/[taskId]">) {
   const { projectId, taskId } = await params;
-  const session = await requireSession();
   const workspace = await requireWorkspace();
 
   const task = await loadTaskView(getDatabase(), workspace, taskId);
@@ -28,7 +27,7 @@ export default async function TaskPage({
     <ToastProvider>
       <AppShell
         title={`TSK-${task.number}`}
-        account={<AccountMenu name={session.name} email={session.email} />}
+        account={<AccountBar />}
       >
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 pb-10">
           <Link

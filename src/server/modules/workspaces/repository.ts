@@ -11,7 +11,7 @@ import { randomToken } from "@/lib/token";
 import type { Role, TenantContext } from "@/server/auth/tenant";
 import type { Database, Executor } from "@/server/db/client";
 import { createExampleProject } from "@/server/modules/projects/example";
-import { workspaceMembers, workspaces } from "@/server/db/schema";
+import { users, workspaceMembers, workspaces } from "@/server/db/schema";
 
 export type Membership = {
   readonly workspaceId: string;
@@ -33,6 +33,35 @@ export async function membershipsOf(
     .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
     .where(eq(workspaceMembers.userId, userId))
     .orderBy(asc(workspaces.createdAt));
+
+  return rows.map((row) => ({ ...row, role: row.role as Role }));
+}
+
+export type Member = {
+  readonly userId: string;
+  readonly name: string;
+  readonly email: string;
+  readonly role: Role;
+  readonly since: Date;
+};
+
+/** Everyone in this workspace, oldest membership first. */
+export async function membersOf(
+  executor: Executor,
+  context: TenantContext,
+): Promise<Member[]> {
+  const rows = await executor
+    .select({
+      userId: users.id,
+      name: users.name,
+      email: users.email,
+      role: workspaceMembers.role,
+      since: workspaceMembers.createdAt,
+    })
+    .from(workspaceMembers)
+    .innerJoin(users, eq(users.id, workspaceMembers.userId))
+    .where(eq(workspaceMembers.workspaceId, context.workspaceId))
+    .orderBy(asc(workspaceMembers.createdAt));
 
   return rows.map((row) => ({ ...row, role: row.role as Role }));
 }
