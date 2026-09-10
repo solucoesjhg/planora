@@ -4,7 +4,6 @@ import {
   columns,
   dayAfter,
   dayBefore,
-  daysAfter,
   daysBefore,
   makeBoard,
   makeTask,
