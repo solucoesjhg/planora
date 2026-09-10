@@ -34,6 +34,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="pt-BR"
       className={`${display.variable} ${ui.variable} h-full antialiased`}
+      /**
+       * The script below writes `data-theme` onto this element before React
+       * hydrates — which is the point of it, and which React otherwise reports
+       * as an attribute the server never rendered. Suppressed for this element
+       * only, one level deep: everything inside it is still checked.
+       */
+      suppressHydrationWarning
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />

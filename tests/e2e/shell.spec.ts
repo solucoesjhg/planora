@@ -92,3 +92,39 @@ function overlaps(a: Box, b: Box): boolean {
     b.y < a.y + a.height
   );
 }
+
+/**
+ * The theme is written onto `<html>` by a script that runs before React
+ * hydrates — deliberately, so the page never flashes the wrong theme. React
+ * reports that as an attribute the server never rendered unless the element
+ * says it is expected, and a root-level hydration failure makes React throw the
+ * server's HTML away and render the whole page again in the browser.
+ *
+ * It went unnoticed for four phases because every test started with an empty
+ * `localStorage`, where the script does nothing. This one starts with a theme
+ * already chosen, which is what anybody who has used the app once has.
+ */
+test.describe("a theme chosen earlier", () => {
+  for (const theme of ["dark", "light"] as const) {
+    test(`loads with no hydration error (${theme})`, async ({ page }) => {
+      const errors: string[] = [];
+      page.on("console", (message) => {
+        if (message.type() === "error") errors.push(message.text());
+      });
+      page.on("pageerror", (error) => errors.push(error.message));
+
+      await page.goto("/");
+      await page.evaluate(
+        (chosen) => localStorage.setItem("planora-theme", chosen),
+        theme,
+      );
+
+      errors.length = 0;
+      await page.reload();
+      await expect(page.getByRole("link", { name: "Entrar" })).toBeVisible();
+
+      expect(await page.locator("html").getAttribute("data-theme")).toBe(theme);
+      expect(errors).toStrictEqual([]);
+    });
+  }
+});

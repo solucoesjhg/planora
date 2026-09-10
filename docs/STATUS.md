@@ -104,6 +104,14 @@ of their column.
 
 ## Decisions taken since the plan
 
+- **`<html suppressHydrationWarning>`.** The pre-paint script writes
+  `data-theme` before React hydrates — the point of it — and React reported the
+  attribute as one the server never rendered. A root-level mismatch makes React
+  throw the server's HTML away and render the page again in the browser. It
+  survived four phases because every test started with an empty `localStorage`,
+  where the script does nothing; the regression test now starts with a theme
+  already chosen, which is what anybody who has used the app once has.
+
 - **An attachment has a stable address, not a signed URL.** `/api/attachments/<id>`
   checks the session and the workspace and redirects to a URL signed on the
   spot. A signed URL is right for delivering a file and wrong for referring to
