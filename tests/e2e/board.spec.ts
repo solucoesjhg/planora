@@ -1,6 +1,7 @@
 import { test, expect } from "./support/test";
 import { registerAndVerify } from "./support/account";
-import { columnOf, drag, openExampleBoard } from "./support/board";
+import { columnOf, columnWithPhase, drag, openExampleBoard } from "./support/board";
+import { activityCount, pendingEventCount } from "./support/database";
 
 /**
  * The Phase 6 criterion: a refused drag bounces **without touching the
@@ -87,5 +88,25 @@ test.describe("the board", () => {
     await page.getByRole("button", { name: "Apagar" }).click();
 
     await expect(created).toHaveCount(0);
+  });
+
+  /**
+   * The outbox is only worth having if something reads it. Nothing did: events
+   * piled up unprocessed and the activity feed had no rows at all, which the
+   * dashboard in Phase 8 is built to render. The move above is what fills it.
+   */
+  test("a move reaches the activity feed", async ({ page }) => {
+    const before = await activityCount();
+
+    const card = page.getByTestId("task-card").filter({ hasText: "limpeza" });
+    await drag(page, card, columnWithPhase(page, "review"));
+    await expect(async () => {
+      expect(await columnOf(page, "limpeza")).toBe("review");
+    }).toPass();
+
+    await expect(async () => {
+      expect(await activityCount()).toBeGreaterThan(before);
+      expect(await pendingEventCount()).toBe(0);
+    }).toPass();
   });
 });

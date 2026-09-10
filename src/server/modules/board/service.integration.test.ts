@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { asc, eq } from "drizzle-orm";
+import { MAX_KEY_LENGTH } from "@/domain/kanban";
 import { isRefused } from "@/lib/result";
 import { tenantContext } from "@/server/auth/tenant";
 import type { Connection } from "@/server/db/client";
@@ -159,6 +160,45 @@ suite("moveTask against a real database", () => {
       expect(moved.position > inReview[0].position).toBe(true);
       expect(moved.position < inReview[1].position).toBe(true);
     }
+  });
+
+
+  it("rewrites a column whose keys have grown too long", async () => {
+    const review = seedIds.column(0, 2);
+
+    // A column that has been inserted into between the same two cards for a
+    // long time: keys past the length the domain tolerates.
+    const long = "V".repeat(MAX_KEY_LENGTH + 4);
+    const inReview = await connection.db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(eq(tasks.columnId, review));
+
+    for (const [index, row] of inReview.entries()) {
+      await connection.db
+        .update(tasks)
+        .set({ position: `${long}${index}` })
+        .where(eq(tasks.id, row.id));
+    }
+
+    const result = await moveTask(connection.db, owner(), {
+      taskId: seedIds.task(1),
+      toColumnId: review,
+    });
+    expect(isRefused(result)).toBe(false);
+
+    const after = await connection.db
+      .select({ position: tasks.position })
+      .from(tasks)
+      .where(eq(tasks.columnId, review));
+
+    expect(after.length).toBeGreaterThan(inReview.length);
+    for (const row of after) {
+      expect(row.position.length).toBeLessThanOrEqual(MAX_KEY_LENGTH);
+    }
+
+    // And the order is still an order: every key distinct.
+    expect(new Set(after.map((row) => row.position)).size).toBe(after.length);
   });
 
   it("refuses a viewer, and a workspace that is not the task's", async () => {

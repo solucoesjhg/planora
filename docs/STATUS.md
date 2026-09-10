@@ -2,7 +2,8 @@
 
 **Phases 0 to 6 are merged** — Phase 3 without its deployed environment, which
 was deliberately left out.
-**Phase 7 is on the branch `phase-7-task-document`.**
+**Phase 7 is on the branch `phase-7-task-document`**, and the repairs a
+phase-by-phase review turned up are on `review-repairs`, stacked on it.
 
 Remote: https://github.com/solucoesjhg/planora (private)
 
@@ -102,7 +103,46 @@ of their column.
 - CI warns that the `actions/*@v4` steps target Node 20, which GitHub has
   deprecated; the runner forces Node 24 and the jobs pass.
 
+## What the phase-by-phase review found
+
+Read against the plan, phase by phase, with the code run against the real
+database. Five defects, all repaired on `review-repairs`:
+
+- **Every deadline was one day early** outside UTC. A `date` column was read
+  into a `Date` (midnight UTC), serialised, and parsed back in the reader's
+  zone. Calendar days now travel as `YYYY-MM-DD` end to end, and two tests pin
+  it — one on the driver's behaviour, one on what the card says.
+- **Four of the seven destinations in the rail answered with the framework's
+  404**, and no error boundary existed anywhere. `/users` is now built,
+  `/files`, `/settings` and `/assistant` say which phase they arrive in, and
+  `error.tsx`, `global-error.tsx` and `not-found.tsx` exist.
+- **Invitations led nowhere.** `inviteMember` had tests and no caller, and
+  accepting one dropped you into `memberships[0]` ordered by age with no way to
+  switch. The members screen sends them; the account menu switches.
+- **Nothing drained the outbox** — sixteen events, zero activity rows. See
+  §4.5.
+- **A malformed id was a 500**, not a 404: Postgres rejects a bad uuid with an
+  error rather than an empty result.
+
+Two things the review confirmed rather than repaired: every tenant-scoped query
+is scoped (the exceptions are the dispatcher, which runs across workspaces by
+design, and the invitation lookup by token hash), and the health engine — 435
+lines, fully tested — still has no caller, by the plan's own sequencing. It
+arrives in Phase 8 having never run against real data, which is worth knowing
+before it does.
+
 ## Decisions taken since the plan
+
+- **A calendar day is not an instant.** `CalendarDate` is a `YYYY-MM-DD`
+  string, from the column to the screen; nothing converts one to a `Date`.
+- **The chosen workspace is a cookie, and the cookie is a preference.**
+  Membership is resolved from the database on every request, and a cookie
+  naming a workspace the person is not in is ignored rather than obeyed —
+  being removed from a workspace cannot lock somebody out of their own.
+- **The outbox drains after each mutation** through `after()`, not only when
+  Phase 9's clock arrives.
+- **A column rebalances its keys inside the move that grew them.** The comment
+  on `needsRebalance` had claimed this for four phases while nothing did it.
 
 - **`<html suppressHydrationWarning>`.** The pre-paint script writes
   `data-theme` before React hydrates — the point of it — and React reported the

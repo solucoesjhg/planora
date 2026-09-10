@@ -402,6 +402,8 @@ Application code is where rules live, but a handful of them are cheap to guarant
 outbox_events(id, workspace_id, type, payload jsonb, occurred_at, processed_at, attempts, dedupe_key)
 ```
 
+**Who drains it.** A queue nobody reads is a table that grows: sixteen events had piled up with no activity row to show for them. Every Server Action that mutates now calls `dispatchSoon()`, which runs the dispatcher through Next's `after()` — once the response is already on its way, so nobody waits for it. Phase 9's scheduler is then what it should have been from the start: the retry path for what failed, not the only path.
+
 Event types the MVP emits: `task.created`, `task.moved`, `task.blocked`, `task.unblocked`, `task.completed`, `checklist.completed`, `comment.added`, `dependency.resolved`, `project.health_changed`, `member.invited`.
 
 ### 4.6 Actor, and why automation never signs as a person
