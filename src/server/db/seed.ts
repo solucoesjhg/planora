@@ -9,6 +9,7 @@
 
 import { sql } from "drizzle-orm";
 import { keyBetween } from "@/domain/kanban";
+import { calendarDateOf } from "@/domain/types";
 import { fixedId } from "@/lib/id";
 import type { Database } from "./client";
 import {
@@ -26,6 +27,8 @@ export const SEED_EPOCH = new Date("2026-09-01T12:00:00.000Z");
 
 const DAY = 86_400_000;
 const at = (days: number) => new Date(SEED_EPOCH.getTime() + days * DAY);
+/** The same offset as a calendar day, for the columns that hold one. */
+const day = (days: number) => calendarDateOf(at(days));
 
 export const seedIds = {
   user: fixedId("user", 1),
@@ -112,8 +115,8 @@ export async function seed(db: Database): Promise<SeedResult> {
       name: "Reforma do escritório",
       description: "Obra civil com etapas encadeadas.",
       status: "active",
-      startDate: at(-30),
-      dueDate: at(30),
+      startDate: day(-30),
+      dueDate: day(30),
       position: "V",
       createdBy: seedIds.user,
       createdAt: at(-30),
@@ -125,8 +128,8 @@ export async function seed(db: Database): Promise<SeedResult> {
       name: "Site institucional",
       description: "Entrega em duas fases.",
       status: "active",
-      startDate: at(-20),
-      dueDate: at(10),
+      startDate: day(-20),
+      dueDate: day(10),
       position: "l",
       createdBy: seedIds.user,
       createdAt: at(-20),
@@ -194,7 +197,7 @@ export async function seed(db: Database): Promise<SeedResult> {
         blocked,
         blockedAt: blocked ? at(-6) : null,
         blockReason: blocked ? "Aguardando material" : null,
-        dueDate: overdue ? at(-5) : index % 2 === 0 ? at(14) : null,
+        dueDate: overdue ? day(-5) : index % 2 === 0 ? day(14) : null,
         position,
         enteredColumnAt: stale ? at(-21) : at(-2),
         createdBy: seedIds.user,

@@ -15,6 +15,8 @@ import {
   type Priority,
   type Project,
   type Task,
+  calendarDateOf,
+  calendarDaysBetween,
   daysBetween,
   isDone,
   liveTasks,
@@ -210,7 +212,8 @@ export function projectHealth(input: HealthInput): HealthReport {
     if (task.dueDate === null) continue;
     datedWeight += weightOf(task);
 
-    const daysLate = daysBetween(task.dueDate, now);
+    // Whole days between two calendar days: a task due today is not late.
+    const daysLate = calendarDaysBetween(task.dueDate, calendarDateOf(now));
     const factor = clamp01(daysLate / LATE_SATURATION_DAYS);
     if (factor <= 0) continue;
 
@@ -310,10 +313,13 @@ function paceOf(
   const { startDate, dueDate } = project;
   if (startDate === null || dueDate === null) return null;
 
-  const window = daysBetween(startDate, dueDate);
+  const window = calendarDaysBetween(startDate, dueDate);
   if (window <= 0) return null;
 
-  const elapsedShare = Math.min(1, daysBetween(startDate, now) / window);
+  const elapsedShare = Math.min(
+    1,
+    calendarDaysBetween(startDate, calendarDateOf(now)) / window,
+  );
   if (elapsedShare <= 0) return null;
 
   const expected = elapsedShare * 100;

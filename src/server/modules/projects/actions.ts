@@ -27,11 +27,15 @@ export type ActionResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly reason: ProjectFailure; readonly detail?: string };
 
+/** A calendar day travels as `YYYY-MM-DD`, never as an instant. */
 const optionalDate = z
   .string()
   .trim()
   .optional()
-  .transform((value) => (value ? new Date(`${value}T12:00:00`) : null));
+  .transform((value) => (value ? value : null))
+  .refine((value) => value === null || /^\d{4}-\d{2}-\d{2}$/.test(value), {
+    message: "expected YYYY-MM-DD",
+  });
 
 const createSchema = z.object({
   name: z.string().trim().min(1, "Dê um nome ao projeto").max(120),

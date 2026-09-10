@@ -256,8 +256,10 @@ export const projects = pgTable(
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
     status: text("status").notNull().default("active"),
-    startDate: date("start_date", { mode: "date" }),
-    dueDate: date("due_date", { mode: "date" }),
+    // `string` rather than `date`: a calendar day has no time and no zone, and
+    // turning it into an instant is what showed every deadline a day early.
+    startDate: date("start_date", { mode: "string" }),
+    dueDate: date("due_date", { mode: "string" }),
     position: text("position").notNull(),
     createdBy: uuid("created_by")
       .notNull()
@@ -336,8 +338,10 @@ export const tasks = pgTable(
     blocked: boolean("blocked").notNull().default(false),
     blockedAt: timestamp("blocked_at", { withTimezone: true }),
     blockReason: text("block_reason"),
-    startDate: date("start_date", { mode: "date" }),
-    dueDate: date("due_date", { mode: "date" }),
+    // `string` rather than `date`: a calendar day has no time and no zone, and
+    // turning it into an instant is what showed every deadline a day early.
+    startDate: date("start_date", { mode: "string" }),
+    dueDate: date("due_date", { mode: "string" }),
     position: text("position").notNull(),
     enteredColumnAt: timestamp("entered_column_at", { withTimezone: true })
       .notNull()
