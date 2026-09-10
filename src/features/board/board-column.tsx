@@ -26,10 +26,11 @@ export type BoardColumnProps = {
   readonly count: number;
   readonly isOver?: boolean;
   readonly children: ReactNode;
+  readonly footer?: ReactNode;
 };
 
 export const BoardColumn = forwardRef<HTMLElement, BoardColumnProps>(
-  function BoardColumn({ column, projectId, count, isOver, children }, ref) {
+  function BoardColumn({ column, projectId, count, isOver, children, footer }, ref) {
     const immutable = column.phase === "planning" || column.phase === "done";
 
     return (
@@ -72,6 +73,7 @@ export const BoardColumn = forwardRef<HTMLElement, BoardColumnProps>(
 
         <div className="flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto p-2">
           {children}
+          {footer}
         </div>
       </section>
     );

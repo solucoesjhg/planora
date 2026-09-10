@@ -1,8 +1,8 @@
 # Status
 
-**Phases 0 to 5 are merged** — Phase 3 without its deployed environment, which
+**Phases 0 to 6 are merged** — Phase 3 without its deployed environment, which
 was deliberately left out.
-**Phase 6 is on the branch `phase-6-kanban`.**
+**Phase 7 is on the branch `phase-7-task-document`.**
 
 Remote: https://github.com/solucoesjhg/planora (private)
 
@@ -46,7 +46,7 @@ reopening and drag-to-reorder through services and Server Actions; the grid
 split between active and completed with deadline indicators; and an example
 project seeded at signup so the first screen has something on it.
 
-**Phase 6 — Kanban** (this branch). The board is a Server Component; a single
+**Phase 6 — Kanban.** The board is a Server Component; a single
 client island owns the drag. Drop Catch calls the same `canMoveTask()` the
 service calls, so a refused move bounces with its reason and **never reaches the
 network** — the E2E test counts the requests. Columns are created, renamed,
@@ -54,16 +54,26 @@ reordered and deleted with their phase, planning and done staying at the ends;
 a move between two neighbours writes one row; the board remembers where each
 project was scrolled to.
 
+**Phase 7 — the task as a document** (this branch). A card opens over the board
+through an intercepted route, at a URL that can be shared and that renders as a
+full page when followed. Tiptap writes the body, the notes and the comments —
+all sanitized on the server before storage. Checklists, dependencies (the domain
+refuses a cycle), comments, priority, dates and the blocked flag, with the phase
+trail in the margin. Attachments upload straight to the store through a URL that
+expires and come back through one signed only after the workspace check;
+`server/storage/` is a port with three adapters. Cards are created at the foot
+of their column.
+
 ## Next
 
-- Review and merge the Phase 6 branch.
+- Review and merge the Phase 7 branch.
 - **The deployed environment is the one Phase 3 item still open.** A managed
   Supabase project plus a Vercel deployment, so verification and invitation
   links have a real URL, and migrations run from the pipeline. It needs
   accounts on external services, so it waits for a decision.
-- Phase 7 — the task as a document: the intercepted detail route, Tiptap,
-  checklists, dependencies, comments, attachments on Supabase Storage, and the
-  phase history that archives the previous phase's notes.
+- Phase 8 — dashboard, health surfaces and files: the multi-project dashboard,
+  the contextual sidebar with the five dimensions, daily health snapshots and
+  the trend line, the global file gallery, and settings.
 
 ## Open decisions
 
@@ -78,9 +88,11 @@ project was scrolled to.
 
 ## Blocked / open
 
-- **The Supabase CLI stack is deferred to Phase 7**, when Storage arrives.
-  Local development runs `docker compose up -d`: Postgres on 54322 and Mailpit
-  on 8025. This is the fallback §9.1 anticipated, taken deliberately.
+- **The Supabase CLI stack was not adopted.** Phase 7 took the fallback §9.1
+  named instead: Docker Postgres plus a filesystem storage adapter behind
+  `server/storage/`. Local development runs `docker compose up -d` — Postgres
+  on 54322, Mailpit on 8025 — and files land in `.storage/`. §5.1 was updated.
+  A Supabase bucket needs only the credentials; no other file changes.
 - **E2E does not run in CI yet.** It needs Postgres, Mailpit and a browser on
   the runner; the plan puts the full suite in CI at Phase 11. It runs locally
   with `pnpm e2e`.
@@ -91,6 +103,42 @@ project was scrolled to.
   deprecated; the runner forces Node 24 and the jobs pass.
 
 ## Decisions taken since the plan
+
+- **`server/storage/` is a port with three adapters**, the way email has three
+  senders: Supabase Storage, the filesystem, and memory for tests. The
+  filesystem adapter signs its own URLs with the secret Better Auth signs with
+  and serves them from `/api/files`, so a link expires in development exactly as
+  it does in production. Supabase wins whenever its credentials are present; a
+  production build refuses to fall back to disk unless told to with
+  `STORAGE_DRIVER=local`, which is how the E2E suite runs.
+- **The store's word, not the browser's.** An upload writes a `pending` row,
+  the bytes go straight to the store, and `confirmUpload` asks the store what
+  landed — size, type, checksum — before the row becomes `stored`. Something
+  larger than the limit is deleted along with its row.
+- **One secret, resolved in one place** (`server/auth/secret.ts`). Better Auth
+  had a development fallback and storage had its own check; with
+  `BETTER_AUTH_SECRET` empty in `.env.local` the adapter signed with one key and
+  the route verified against another — every file link a 403 that read like an
+  expiry.
+- **Everything an editor writes is sanitized on the server**, against an
+  allowlist that is the editor's own vocabulary plus the `<section
+  data-phase-note>` the domain writes. The plan had not said so; §7 Phase 7 now
+  does.
+- **`comment.added` joined the event catalogue** (§4.5). It is what the activity
+  feed shows when somebody says something on a task.
+- **The E2E workers each arrive from their own address.** The rate limiter
+  counts per IP, and every worker reaches localhost as `::1`, which normalizes
+  to one shared bucket — so five workers spent one worker's five signups. Each
+  worker now sends its own `x-forwarded-for`, which is how real clients are
+  counted apart. The production limit is untouched. *Worth checking in Phase 10:
+  behind a proxy chain Better Auth needs `advanced.ipAddress.trustedProxies`, or
+  it falls back to a single shared bucket for everyone.*
+- **Three E2E workers locally, the default in CI.** A production build plus one
+  browser per worker on this laptop starved the server and tests failed on
+  timing rather than on behaviour.
+- **`DndContext` gets a fixed `id`.** It names its screen-reader region from an
+  internal counter, which differs between the server's render and the browser's;
+  React logged a hydration mismatch on the projects grid from Phase 5.
 
 - **Fractional index columns are `COLLATE "C"`.** The default collation sorts
   alphabetically and case-insensitively, so `l` sorts before `V` and the base-62

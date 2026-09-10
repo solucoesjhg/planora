@@ -24,6 +24,7 @@ import {
   PASSWORD_MESSAGES,
   checkPassword,
 } from "./password-policy";
+import { authSecret } from "./secret";
 
 /** The endpoints that accept a password Better Auth is about to store. */
 const PASSWORD_PATHS = ["/sign-up/email", "/change-password", "/reset-password"];
@@ -182,7 +183,7 @@ export function getAuth(): Auth {
     database: getDatabase(),
     sender: senderFromEnvironment(),
     baseUrl: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
-    secret: requireSecret(),
+    secret: authSecret(),
     // The E2E suite turns the breach lookup off so it stays hermetic.
     checkBreaches: process.env["DISABLE_BREACH_CHECK"] !== "1",
   });
@@ -203,15 +204,3 @@ function withCallback(url: string, callback: string): string {
   return parsed.toString();
 }
 
-function requireSecret(): string {
-  const secret = process.env.BETTER_AUTH_SECRET;
-  if (secret && secret.length >= 32) return secret;
-
-  if (process.env.NODE_ENV !== "development") {
-    throw new Error(
-      "BETTER_AUTH_SECRET must be set to at least 32 characters outside development",
-    );
-  }
-
-  return "planora-development-secret-planora-development-secret";
-}

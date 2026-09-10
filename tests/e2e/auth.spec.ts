@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { test, expect } from "./support/test";
 import { submitRegistration, uniqueEmail } from "./support/account";
 
 /**

@@ -3,7 +3,8 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { CalendarClock, ListChecks, Lock, Link2 } from "lucide-react";
-import { forwardRef, type CSSProperties, type HTMLAttributes } from "react";
+import { useRouter } from "next/navigation";
+import { forwardRef, useRef, type CSSProperties, type HTMLAttributes } from "react";
 import { deadlineStatus } from "@/domain/projects";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
@@ -14,6 +15,8 @@ export type TaskCardProps = {
   readonly phase: string;
   readonly blocked: boolean;
   readonly bouncing?: boolean;
+  /** Where the card opens. Absent on the drag overlay, which opens nothing. */
+  readonly href?: string;
 };
 
 /**
@@ -25,9 +28,10 @@ export const TaskCardView = forwardRef<
   HTMLElement,
   TaskCardProps & HTMLAttributes<HTMLElement> & { style?: CSSProperties }
 >(function TaskCardView(
-  { task, phase, blocked, bouncing, className, ...rest },
+  { task, phase, blocked, bouncing, href, className, ...rest },
   ref,
 ) {
+  void href;
   const deadline = deadlineStatus(task.dueDate ? new Date(task.dueDate) : null);
   const checklist = task.checklist;
 
@@ -116,19 +120,50 @@ export const TaskCardView = forwardRef<
   );
 });
 
-/** The same card, registered with dnd-kit so it can be picked up. */
+/**
+ * The same card, registered with dnd-kit so it can be picked up — and opened.
+ *
+ * A card is both a handle and a link, which the pointer has to disambiguate:
+ * the press that travelled less than the sensor's activation distance was a
+ * click, and anything further was a drag that has already been handled.
+ */
 export function TaskCard(props: TaskCardProps) {
+  const router = useRouter();
+  const pressedAt = useRef<{ x: number; y: number } | null>(null);
+
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: props.task.id, data: { columnId: props.task.columnId } });
+
+  function open(): void {
+    if (props.href) router.push(props.href);
+  }
 
   return (
     <TaskCardView
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={cn(isDragging && "opacity-40")}
+      className={cn(isDragging && "opacity-40", props.href && "cursor-pointer")}
       {...attributes}
       {...listeners}
+      onPointerDownCapture={(event) => {
+        pressedAt.current = { x: event.clientX, y: event.clientY };
+      }}
+      onClick={(event) => {
+        const start = pressedAt.current;
+        if (!start) return;
+        const travelled = Math.hypot(
+          event.clientX - start.x,
+          event.clientY - start.y,
+        );
+        if (travelled <= ACTIVATION_DISTANCE) open();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") open();
+      }}
       {...props}
     />
   );
 }
+
+/** The same distance the board's PointerSensor uses to decide a drag began. */
+const ACTIVATION_DISTANCE = 5;

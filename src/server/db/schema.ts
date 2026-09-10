@@ -482,6 +482,65 @@ export const taskComments = pgTable(
   ],
 );
 
+export const ATTACHMENT_STATUSES = ["pending", "stored"] as const;
+
+/**
+ * Attachment metadata. The bytes live in a private bucket; this table holds
+ * where they are and what the store said about them, never the file itself.
+ *
+ * A row is written `pending` when the upload ticket is issued and turns
+ * `stored` once the object is actually there — an upload the person abandoned
+ * leaves a row that no screen shows and a sweep can remove.
+ */
+export const attachments = pgTable(
+  "attachments",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    /** Null while an image is dropped into an editor before the task exists. */
+    taskId: uuid("task_id"),
+    bucket: text("bucket").notNull(),
+    path: text("path").notNull(),
+    name: text("name").notNull(),
+    mime: text("mime").notNull(),
+    size: bigint("size", { mode: "number" }).notNull().default(0),
+    checksum: text("checksum").notNull().default(""),
+    status: text("status").notNull().default("pending"),
+    uploadedBy: uuid("uploaded_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+    storedAt: timestamp("stored_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.workspaceId, table.projectId],
+      foreignColumns: [projects.workspaceId, projects.id],
+      name: "attachments_project_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.workspaceId, table.taskId],
+      foreignColumns: [tasks.workspaceId, tasks.id],
+      name: "attachments_task_fk",
+    }).onDelete("cascade"),
+    unique("attachments_workspace_id_key").on(table.workspaceId, table.id),
+    // One row per object: the path carries the id, so this is a guard, not a rule.
+    uniqueIndex("attachments_path_key").on(table.bucket, table.path),
+    index("attachments_workspace_task_idx").on(
+      table.workspaceId,
+      table.taskId,
+      table.createdAt,
+    ),
+    index("attachments_workspace_project_idx").on(
+      table.workspaceId,
+      table.projectId,
+      table.createdAt,
+    ),
+    check("attachments_status", inList("status", ATTACHMENT_STATUSES)),
+  ],
+);
+
 /* ---------------------------------------------------------------- *
  * Trail
  * ---------------------------------------------------------------- */

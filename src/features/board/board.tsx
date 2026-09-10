@@ -27,6 +27,7 @@ import {
   type BoardView,
 } from "@/server/modules/board/view";
 import { BoardColumn } from "./board-column";
+import { NewTask } from "./new-task";
 import { TaskCard, TaskCardView } from "./task-card";
 
 export type BoardProps = { readonly view: BoardView };
@@ -209,6 +210,9 @@ export function Board({ view }: BoardProps) {
 
   return (
     <DndContext
+      // Fixed, so the screen-reader region it names matches between the
+      // server's render and the browser's.
+      id="board"
       sensors={sensors}
       collisionDetection={pointerWithin}
       onDragStart={onDragStart}
@@ -302,6 +306,7 @@ function DroppableColumn({
       projectId={projectId}
       count={tasks.length}
       isOver={isOver}
+      footer={<NewTask projectId={projectId} columnId={column.id} />}
     >
       <SortableContext
         items={tasks.map((task) => task.id)}
@@ -314,6 +319,7 @@ function DroppableColumn({
             phase={column.phase}
             blocked={blockedIds.has(task.id)}
             bouncing={bouncing === task.id}
+            href={`/projects/${projectId}/tasks/${task.id}`}
           />
         ))}
       </SortableContext>

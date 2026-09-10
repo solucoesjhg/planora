@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { test, expect } from "./support/test";
 
 // Phase 0 has no product yet. This proves the harness itself works, and is
 // replaced by the real flows from Phase 3 on.

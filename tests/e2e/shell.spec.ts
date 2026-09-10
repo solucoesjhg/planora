@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { test, expect } from "./support/test";
 
 /**
  * The Phase 4 criterion: the shell renders with no horizontal overflow and no

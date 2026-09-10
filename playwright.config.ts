@@ -6,6 +6,13 @@ export default defineConfig({
   testDir: "./tests/e2e",
   globalSetup: "./tests/e2e/support/global-setup.ts",
   fullyParallel: true,
+  /**
+   * A production build and one browser per worker, all on the developer's own
+   * machine: five of them starve the server and tests fail on timing rather
+   * than on behaviour. CI, with a runner to itself, keeps the default.
+   */
+  workers: process.env.CI ? undefined : 3,
+  expect: { timeout: 10_000 },
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",
@@ -30,6 +37,9 @@ export default defineConfig({
       ENABLE_DEV_ROUTES: "1",
       // No third-party lookup from a test run.
       DISABLE_BREACH_CHECK: "1",
+      // A production build, but the bytes belong on this disk, not in a bucket.
+      STORAGE_DRIVER: "local",
+      STORAGE_DIR: ".storage/e2e",
       BETTER_AUTH_SECRET:
         process.env.BETTER_AUTH_SECRET ??
         "planora-e2e-secret-planora-e2e-secret-32",
