@@ -23,6 +23,9 @@ export type DispatchResult = {
 };
 
 const SUBJECT_OF: Record<EventType, string> = {
+  "project.created": "project",
+  "project.completed": "project",
+  "project.reopened": "project",
   "task.created": "task",
   "task.moved": "task",
   "task.blocked": "task",

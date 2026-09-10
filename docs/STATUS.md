@@ -1,8 +1,8 @@
 # Status
 
-**Phases 0 to 3 are merged** — Phase 3 without its deployed environment, which
+**Phases 0 to 4 are merged** — Phase 3 without its deployed environment, which
 was deliberately left out.
-**Phase 4 is on the branch `phase-4-design-system`.**
+**Phase 5 is on the branch `phase-5-projects`.**
 
 Remote: https://github.com/solucoesjhg/planora (private)
 
@@ -22,7 +22,7 @@ composite tenant foreign keys, the first migration, a deterministic seed,
 repositories taking `TenantContext`, `moveTask` calling the domain inside one
 transaction, the transactional outbox and its idempotent dispatcher.
 
-**Phase 3 — authentication and tenancy** (this branch). Better Auth with email
+**Phase 3 — authentication and tenancy.** Better Auth with email
 and password over the Drizzle adapter, its three tables beside our `users`; a
 personal workspace created by a database hook the moment an account exists; the
 DAL (`requireSession`, `requireWorkspace`, `currentSession`) marked
@@ -32,7 +32,7 @@ Mailpit, memory); workspace invitations with expiry; and plain `/register`,
 `/login`, `/dashboard` and `/invitations/[token]` pages that Phase 4 will
 restyle.
 
-**Phase 4 — design system and shell** (this branch). The v1 kit ported into
+**Phase 4 — design system and shell.** The v1 kit ported into
 `src/styles/tokens.css` and exposed as Tailwind v4 `@theme` utilities; dark by
 default with a bone light theme; Cormorant Garamond and Inter; nine primitives
 on Base UI plus a calendar written here; the tri-pane shell with its collapse
@@ -40,16 +40,22 @@ rules; `/dev/ui`; and the auth and dashboard screens restyled. A lint rule
 refuses a raw colour inside `components/`, and 12 E2E tests check the shell at
 five widths in both themes.
 
+**Phase 5 — projects and clients** (this branch). `canCompleteProject` in the
+domain; the `clients` table and `projects.client_id`; project CRUD, completion,
+reopening and drag-to-reorder through services and Server Actions; the grid
+split between active and completed with deadline indicators; and an example
+project seeded at signup so the first screen has something on it.
+
 ## Next
 
-- Review and merge the Phase 4 branch.
+- Review and merge the Phase 5 branch.
 - **The deployed environment is the one Phase 3 item still open.** A managed
   Supabase project plus a Vercel deployment, so verification and invitation
   links have a real URL, and migrations run from the pipeline. It needs
   accounts on external services, so it waits for a decision.
-- Phase 5 — projects and clients: CRUD, the grid split by state, deadline
-  indicators, the validation that refuses to complete a project with open work,
-  the `clients` record, and a seeded example project at signup.
+- Phase 6 — Kanban: the board rendered on the server with a client island for
+  the drag, Drop Catch consuming `canMoveTask()` on both sides, dynamic columns
+  typed by phase, edge scrolling and per-project scroll memory.
 
 ## Open decisions
 
@@ -70,13 +76,24 @@ five widths in both themes.
 - **E2E does not run in CI yet.** It needs Postgres, Mailpit and a browser on
   the runner; the plan puts the full suite in CI at Phase 11. It runs locally
   with `pnpm e2e`.
-- No CLI seed script yet; the seed is exercised by the integration tests. A
-  `db:seed` command belongs with the `/_dev` routes in Phase 4.
+- No CLI seed script yet; the seed is exercised by the integration tests, and
+  `/dev/ui` renders fixtures rather than database rows. A `db:seed` command is
+  worth adding when a screen needs a populated database to look at.
 - CI warns that the `actions/*@v4` steps target Node 20, which GitHub has
   deprecated; the runner forces Node 24 and the jobs pass.
 
 ## Decisions taken since the plan
 
+- **Fractional index columns are `COLLATE "C"`.** The default collation sorts
+  alphabetically and case-insensitively, so `l` sorts before `V` and the base-62
+  keys scramble. Migration `0004` alters the four position columns; a reorder
+  test caught it, not a reading of the code.
+- **Workspace slugs are claimed, not checked.** Two signups with the same name
+  raced the uniqueness check. `onConflictDoNothing` claims the slug and falls
+  back — and the fallback reads the **end** of the user id, because a UUID v7
+  starts with a timestamp and accounts created in the same instant share it.
+- The E2E suite truncates `rate_limits` in a global setup: the limiter stays at
+  production strength rather than being weakened for tests.
 - `canMoveTask` takes the board context as a named argument; §3.6 was updated.
 - The domain treats a task in `done` as never blocked (§3.4).
 - `bandOf` and `smoothVerdict` are exported so hysteresis can be tested directly.

@@ -27,7 +27,14 @@ export default function RegisterPage() {
 
     setBusy(false);
     if (result.error) {
-      setError(result.error.message ?? "Não foi possível criar a conta.");
+      // A refused password arrives with its own message; a rate limit arrives
+      // with none, and "não foi possível" would leave the person clicking again
+      // into the same wall.
+      setError(
+        result.error.status === 429
+          ? "Muitas tentativas seguidas. Espere um minuto e tente de novo."
+          : (result.error.message ?? "Não foi possível criar a conta."),
+      );
       return;
     }
     setSent(true);
