@@ -14,7 +14,8 @@
     "db:generate": "drizzle-kit generate",
     "e2e": "playwright test",
     "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "vercel-build": "node scripts/migrate.mjs && next build"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

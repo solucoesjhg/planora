@@ -61,6 +61,19 @@ export function createAuth({
         // Same id scheme as every other table: time-ordered UUID v7.
         generateId: () => newId(),
       },
+      /**
+       * Who the rate limiter is counting.
+       *
+       * Behind a proxy the socket address is the proxy's, and when Better Auth
+       * cannot resolve a client it falls back to **one shared bucket for
+       * everybody** — which would make sign-up five per minute for the whole
+       * deployment, not per person. Vercel sets `x-vercel-forwarded-for`
+       * itself and strips any copy the client sent, so it is the one worth
+       * trusting there; `x-forwarded-for` is the fallback everywhere else.
+       */
+      ipAddress: {
+        ipAddressHeaders: ["x-vercel-forwarded-for", "x-forwarded-for"],
+      },
     },
     emailAndPassword: {
       enabled: true,
