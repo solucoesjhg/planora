@@ -217,6 +217,34 @@ export const workspaceInvitations = pgTable(
  * Portfolio
  * ---------------------------------------------------------------- */
 
+/**
+ * A real record, replacing the v1's "client directory" that was a scan over
+ * e-mail strings typed into projects. It is also what a per-project share will
+ * hang from when client access arrives (§6.5).
+ */
+export const clients = pgTable(
+  "clients",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    email: text("email"),
+    notes: text("notes").notNull().default(""),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    unique("clients_workspace_id_key").on(table.workspaceId, table.id),
+    unique("clients_workspace_name").on(table.workspaceId, table.name),
+    index("clients_workspace_idx").on(table.workspaceId, table.name),
+  ],
+);
+
 export const projects = pgTable(
   "projects",
   {
@@ -224,6 +252,7 @@ export const projects = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
+    clientId: uuid("client_id"),
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
     status: text("status").notNull().default("active"),
@@ -240,6 +269,11 @@ export const projects = pgTable(
   (table) => [
     // Lets children carry the tenant in their own foreign key.
     unique("projects_workspace_id_key").on(table.workspaceId, table.id),
+    foreignKey({
+      columns: [table.workspaceId, table.clientId],
+      foreignColumns: [clients.workspaceId, clients.id],
+      name: "projects_client_fk",
+    }).onDelete("set null"),
     index("projects_workspace_status_idx").on(table.workspaceId, table.status),
     check("projects_status", inList("status", PROJECT_STATUSES)),
   ],
@@ -541,6 +575,7 @@ export const outboxEvents = pgTable(
 
 export const schema = {
   users,
+  clients,
   sessions,
   accounts,
   verifications,

@@ -22,6 +22,20 @@
       "when": 1788965411775,
       "tag": "0002_rate_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788983251261,
+      "tag": "0003_clients",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788983252261,
+      "tag": "0004_position_collation",
+      "breakpoints": true
     }
   ]
 }

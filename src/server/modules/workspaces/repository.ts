@@ -7,8 +7,10 @@
 
 import { and, asc, eq, sql } from "drizzle-orm";
 import { keyBetween } from "@/domain/kanban";
+import { randomToken } from "@/lib/token";
 import type { Role, TenantContext } from "@/server/auth/tenant";
 import type { Database, Executor } from "@/server/db/client";
+import { createExampleProject } from "@/server/modules/projects/example";
 import { workspaceMembers, workspaces } from "@/server/db/schema";
 
 export type Membership = {
@@ -81,7 +83,27 @@ export async function ensurePersonalWorkspace(
     const owned = existing.find((membership) => membership.role === "owner");
     if (owned) return owned.workspaceId;
 
-    return createPersonalWorkspace(tx, user);
+    const workspaceId = await createPersonalWorkspace(tx, user);
+
+    /**
+     * A first screen with something on it. Nested so it runs inside its own
+     * savepoint: a failed statement aborts the whole transaction in Postgres,
+     * and an example project is not worth losing a signup over.
+     */
+    try {
+      await tx.transaction(async (nested) => {
+        await createExampleProject(nested, {
+          workspaceId,
+          userId: user.id,
+          role: "owner",
+        });
+      });
+    } catch {
+      // The savepoint rolled back; the workspace survives and the person can
+      // create their own project.
+    }
+
+    return workspaceId;
   });
 }
 
@@ -91,16 +113,32 @@ export async function createPersonalWorkspace(
 ): Promise<string> {
   const name = user.name.trim().length > 0 ? user.name.trim() : "Meu espaço";
 
-  const [workspace] = await executor
-    .insert(workspaces)
-    .values({
-      name,
-      slug: await uniqueSlug(executor, name, user.id),
-      createdBy: user.id,
-    })
-    .returning({ id: workspaces.id });
+  /**
+   * Two people signing up at the same second with the same name would both
+   * find the slug free and both try to take it. So the database decides:
+   * claim it, and if it is gone, fall back to a slug carrying the user id —
+   * which is unique by construction. `onConflictDoNothing` returns no row
+   * instead of aborting the transaction, which a raised constraint would.
+   */
+  const base = slugify(name);
 
-  if (!workspace) throw new Error("workspace insert returned nothing");
+  /**
+   * The fallbacks read from the **end** of the id, never the start: a UUID v7
+   * begins with a millisecond timestamp, so accounts created in the same
+   * instant share their first characters — which is exactly the case this
+   * fallback exists for. The last group is random.
+   */
+  let workspace: { id: string } | null = null;
+  for (const slug of [
+    base,
+    `${base}-${user.id.slice(-8)}`,
+    `${base}-${randomToken(4)}`,
+  ]) {
+    workspace = await claimSlug(executor, name, slug, user.id);
+    if (workspace) break;
+  }
+
+  if (!workspace) throw new Error("could not claim a workspace slug");
 
   await executor.insert(workspaceMembers).values({
     workspaceId: workspace.id,
@@ -130,28 +168,31 @@ export async function findMembership(
   return (row?.role as Role) ?? null;
 }
 
-async function uniqueSlug(
+async function claimSlug(
   executor: Executor,
   name: string,
+  slug: string,
   userId: string,
-): Promise<string> {
-  const base =
+): Promise<{ id: string } | null> {
+  const [row] = await executor
+    .insert(workspaces)
+    .values({ name, slug, createdBy: userId })
+    .onConflictDoNothing({ target: workspaces.slug })
+    .returning({ id: workspaces.id });
+
+  return row ?? null;
+}
+
+function slugify(name: string): string {
+  return (
     name
       .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
+      .replace(/\p{Diacritic}/gu, "")
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "")
-      .slice(0, 32) || "espaco";
-
-  const [taken] = await executor
-    .select({ slug: workspaces.slug })
-    .from(workspaces)
-    .where(eq(workspaces.slug, base))
-    .limit(1);
-
-  // The user id is already unique; a suffix from it beats a counter and a race.
-  return taken ? `${base}-${userId.slice(0, 8)}` : base;
+      .slice(0, 32) || "espaco"
+  );
 }
 
 /** Ordering key for the first project in a fresh workspace. */

@@ -12,6 +12,9 @@ import type { Executor } from "@/server/db/client";
 import { outboxEvents } from "@/server/db/schema";
 
 export const EVENT_TYPES = [
+  "project.created",
+  "project.completed",
+  "project.reopened",
   "task.created",
   "task.moved",
   "task.blocked",

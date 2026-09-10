@@ -146,6 +146,37 @@ suite("signing up", () => {
     expect(await connection.db.select().from(users)).toHaveLength(1);
   });
 
+  it("survives four people with the same name signing up at once", async () => {
+    /**
+     * The slug comes from the name, so simultaneous signups race for it. Four
+     * rather than two on purpose: the first fallback used the head of the user
+     * id, and a UUID v7 starts with a timestamp — so accounts created in the
+     * same instant collided on the fallback too. Found by four Playwright
+     * workers all registering "Pessoa de Teste".
+     */
+    const created = await Promise.all(
+      [1, 2, 3, 4].map((index) =>
+        auth.api.signUpEmail({
+          body: {
+            name: "Pessoa de Teste",
+            email: `pessoa${index}@example.com`,
+            password,
+          },
+        }),
+      ),
+    );
+
+    expect(new Set(created.map((result) => result.user.id)).size).toBe(4);
+
+    const rows = await connection.db.select().from(workspaces);
+    expect(rows).toHaveLength(4);
+    expect(new Set(rows.map((row) => row.slug)).size).toBe(4);
+
+    for (const result of created) {
+      expect(await membershipsOf(connection.db, result.user.id)).toHaveLength(1);
+    }
+  });
+
   it("does not duplicate the account or the workspace on a repeated signup", async () => {
     // Better Auth reuses an unverified account and re-sends the verification
     // rather than erroring, which is also what keeps signup from telling a
