@@ -2,13 +2,12 @@ import { AppShell } from "@/components/layout/app-shell";
 import { ToastProvider } from "@/components/ui/toast";
 import { NewProjectDialog } from "@/features/projects/new-project-dialog";
 import { ProjectGrid } from "@/features/projects/project-grid";
-import { requireSession, requireWorkspace } from "@/server/auth/dal";
+import { requireWorkspace } from "@/server/auth/dal";
 import { getDatabase } from "@/server/db/client";
 import { listProjects } from "@/server/modules/projects/repository";
-import { AccountMenu } from "@/app/(app)/dashboard/account-menu";
+import { AccountBar } from "@/features/workspace/account-bar";
 
 export default async function ProjectsPage() {
-  const session = await requireSession();
   const workspace = await requireWorkspace();
   const projects = await listProjects(getDatabase(), workspace);
 
@@ -22,7 +21,7 @@ export default async function ProjectsPage() {
     <ToastProvider>
       <AppShell
         title="Projetos"
-        account={<AccountMenu name={session.name} email={session.email} />}
+        account={<AccountBar />}
         panelTitle="Resumo"
         panel={
           <Summary
@@ -46,7 +45,7 @@ export default async function ProjectsPage() {
               name: project.name,
               description: project.description,
               status: project.status,
-              dueDate: project.dueDate ? project.dueDate.toISOString() : null,
+              dueDate: project.dueDate,
               clientName: project.clientName,
               openTasks: project.openTasks,
               totalTasks: project.totalTasks,

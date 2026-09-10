@@ -164,6 +164,35 @@ test.describe("the task as a document", () => {
     expect(anonymous.status()).toBe(401);
   });
 
+  /**
+   * The regression that reached the screen: a due date used to travel as an
+   * instant, and every zone west of UTC read it back as the day before — a task
+   * due today was shown as one day late. The browser here runs in whatever zone
+   * the machine is in, which is the point.
+   */
+  test("a task due today reads as today, not as a day late", async ({ page }) => {
+    await openCard(page, "limpeza");
+    const modal = page.getByTestId("task-modal");
+
+    const today = new Date();
+    const isoToday = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, "0"),
+      String(today.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    await modal.getByLabel("Prazo").fill(isoToday);
+    await modal.getByRole("textbox", { name: "Título da tarefa" }).click();
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("task-modal")).toHaveCount(0);
+    await page.reload();
+
+    const card = page.getByTestId("task-card").filter({ hasText: "limpeza" });
+    await expect(card).toContainText("hoje");
+    await expect(card).not.toContainText("atraso");
+  });
+
   test("a new card is written where it will live", async ({ page }) => {
     await columnWithPhase(page, "planning")
       .getByRole("button", { name: "Nova tarefa" })

@@ -8,6 +8,7 @@
 
 import { keyBetween } from "@/domain/kanban";
 import { canCompleteProject, type CompletionRefusal } from "@/domain/projects";
+import type { CalendarDate } from "@/domain/types";
 import { ok, refused, type Result } from "@/lib/result";
 import { can, type TenantContext } from "@/server/auth/tenant";
 import type { Database } from "@/server/db/client";
@@ -34,8 +35,8 @@ export type CreateProjectInput = {
   readonly name: string;
   readonly description?: string;
   readonly clientName?: string | undefined;
-  readonly startDate?: Date | null;
-  readonly dueDate?: Date | null;
+  readonly startDate?: CalendarDate | null;
+  readonly dueDate?: CalendarDate | null;
 };
 
 export async function createProject(
@@ -140,8 +141,8 @@ export type EditProjectInput = {
   readonly name?: string;
   readonly description?: string;
   readonly clientName?: string | undefined;
-  readonly startDate?: Date | null;
-  readonly dueDate?: Date | null;
+  readonly startDate?: CalendarDate | null;
+  readonly dueDate?: CalendarDate | null;
 };
 
 export async function editProject(

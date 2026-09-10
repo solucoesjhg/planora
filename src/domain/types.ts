@@ -18,6 +18,38 @@ export type BoardColumn = {
   readonly position: string;
 };
 
+/**
+ * A day on a calendar, not an instant — `YYYY-MM-DD`.
+ *
+ * A due date has no time and no time zone: "15 de setembro" is the same day in
+ * São Paulo and in Lisbon. Turning it into a `Date` picks a moment (midnight
+ * UTC), and reading that moment back in any zone west of UTC lands on the day
+ * before, which is how every deadline came to be shown one day early.
+ */
+export type CalendarDate = string;
+
+const pad = (value: number) => String(value).padStart(2, "0");
+
+/** The day this instant falls on, where the reader is. */
+export function calendarDateOf(instant: Date): CalendarDate {
+  return `${instant.getFullYear()}-${pad(instant.getMonth() + 1)}-${pad(instant.getDate())}`;
+}
+
+/** Whole days from one calendar day to another; negative when `to` is earlier. */
+export function calendarDaysBetween(from: CalendarDate, to: CalendarDate): number {
+  return Math.round((utcOf(to) - utcOf(from)) / DAY_MS);
+}
+
+export function isCalendarDate(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(utcOf(value));
+}
+
+/** Both ends anchored at the same hour, so the difference is exact days. */
+function utcOf(date: CalendarDate): number {
+  const [year, month, day] = date.split("-").map(Number);
+  return Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1);
+}
+
 export type Checklist = {
   readonly total: number;
   readonly done: number;
@@ -31,15 +63,16 @@ export type Task = {
   /** The manual flag only. The union with dependencies is `isBlocked()`. */
   readonly blocked: boolean;
   readonly dependsOn: readonly string[];
-  readonly dueDate: Date | null;
+  readonly dueDate: CalendarDate | null;
   /** When the task landed in its current column; falls back to creation. */
   readonly enteredColumnAt: Date;
   readonly deletedAt: Date | null;
 };
 
 export type Project = {
-  readonly startDate: Date | null;
-  readonly dueDate: Date | null;
+  readonly startDate: CalendarDate | null;
+  readonly dueDate: CalendarDate | null;
+  /** An instant: when the row was written, not a day somebody chose. */
   readonly createdAt: Date;
 };
 

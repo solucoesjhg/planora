@@ -9,6 +9,7 @@
  * component untouched.
  */
 
+import { isId } from "@/lib/id";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { BoardContext, Phase, Priority } from "@/domain/types";
 import type { TenantContext } from "@/server/auth/tenant";
@@ -54,6 +55,8 @@ export async function loadBoardView(
   context: TenantContext,
   projectId: string,
 ): Promise<BoardView | null> {
+  if (!isId(projectId)) return null;
+
   const [project] = await executor
     .select({ id: projects.id, name: projects.name, status: projects.status })
     .from(projects)
@@ -133,7 +136,7 @@ export async function loadBoardView(
       priority: row.priority as Priority,
       blocked: row.blocked,
       blockReason: row.blockReason,
-      dueDate: row.dueDate ? row.dueDate.toISOString() : null,
+      dueDate: row.dueDate,
       enteredColumnAt: row.enteredColumnAt.toISOString(),
       checklist: checklists.get(row.id) ?? { total: 0, done: 0 },
       dependsOn: dependencies.get(row.id) ?? [],
@@ -162,7 +165,7 @@ export function toDomainContext(view: {
       checklist: task.checklist,
       blocked: task.blocked,
       dependsOn: task.dependsOn,
-      dueDate: task.dueDate ? new Date(task.dueDate) : null,
+      dueDate: task.dueDate,
       enteredColumnAt: new Date(task.enteredColumnAt),
       deletedAt: null,
     })),

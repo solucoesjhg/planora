@@ -92,7 +92,7 @@ export function keyBetween(lower: string | null, upper: string | null): string {
   return midpoint(lower ?? "", upper);
 }
 
-/** A column whose keys have grown long is rebalanced on its own. */
+/** True when a column's keys have grown long enough to be rewritten (§3.6). */
 export function needsRebalance(
   keys: readonly string[],
   maxLength = MAX_KEY_LENGTH,

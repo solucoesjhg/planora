@@ -38,7 +38,7 @@ export function ProjectCard({
     useSortable({ id: project.id, disabled: project.status === "completed" });
 
   const completed = project.status === "completed";
-  const deadline = deadlineStatus(project.dueDate ? new Date(project.dueDate) : null);
+  const deadline = deadlineStatus(project.dueDate);
 
   return (
     <article

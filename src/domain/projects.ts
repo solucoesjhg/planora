@@ -7,7 +7,15 @@
 
 import { type Decision, allowed, refused } from "@/lib/result";
 import { isBlocked } from "./dependencies";
-import { type BoardContext, type Task, daysBetween, isDone, liveTasks } from "./types";
+import {
+  type BoardContext,
+  type CalendarDate,
+  type Task,
+  calendarDateOf,
+  calendarDaysBetween,
+  isDone,
+  liveTasks,
+} from "./types";
 
 export type CompletionRefusal = "blocked-tasks" | "open-work";
 
@@ -43,16 +51,16 @@ export type DeadlineStatus =
   | { readonly kind: "late"; readonly days: number };
 
 /**
- * What the card says under the name. Whole days, counted from the start of
- * today, so "1 dia" means tomorrow rather than "in 26 hours".
+ * What the card says under the name — two calendar days apart, never two
+ * instants. "1 dia" means tomorrow, and it means that in every time zone.
  */
 export function deadlineStatus(
-  dueDate: Date | null,
+  dueDate: CalendarDate | null,
   now: Date = new Date(),
 ): DeadlineStatus {
   if (!dueDate) return { kind: "none" };
 
-  const days = Math.trunc(daysBetween(startOfDay(now), startOfDay(dueDate)));
+  const days = calendarDaysBetween(calendarDateOf(now), dueDate);
 
   if (days === 0) return { kind: "due-today" };
   if (days > 0) return { kind: "on-track", days };
@@ -66,8 +74,4 @@ export function openTaskCount(context: BoardContext): number {
 
 export function blockedTasks(context: BoardContext): Task[] {
   return liveTasks(context.tasks).filter((task) => isBlocked(task, context));
-}
-
-function startOfDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }

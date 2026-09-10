@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { dispatchSoon } from "@/server/events/dispatch-soon";
 import { z } from "zod";
 import { PRIORITIES } from "@/domain/types";
 import { isRefused } from "@/lib/result";
@@ -41,6 +42,7 @@ const isoDate = z.iso.date().nullable();
 function refresh(projectId: string, taskId?: string): void {
   revalidatePath(`/projects/${projectId}`);
   if (taskId) revalidatePath(`/projects/${projectId}/tasks/${taskId}`);
+  dispatchSoon();
 }
 
 const createSchema = z.object({
@@ -90,8 +92,8 @@ export async function updateTaskAction(
       ? {}
       : { internalNotes: parsed.internalNotes }),
     ...(parsed.priority === undefined ? {} : { priority: parsed.priority }),
-    ...(parsed.startDate === undefined ? {} : { startDate: toDate(parsed.startDate) }),
-    ...(parsed.dueDate === undefined ? {} : { dueDate: toDate(parsed.dueDate) }),
+    ...(parsed.startDate === undefined ? {} : { startDate: parsed.startDate }),
+    ...(parsed.dueDate === undefined ? {} : { dueDate: parsed.dueDate }),
     ...(parsed.blocked === undefined ? {} : { blocked: parsed.blocked }),
     ...(parsed.blockReason === undefined ? {} : { blockReason: parsed.blockReason }),
   });
@@ -387,6 +389,3 @@ function failure<Reason extends string>(result: {
     : { ok: false, reason: result.reason, detail: result.detail };
 }
 
-function toDate(value: string | null): Date | null {
-  return value === null ? null : new Date(`${value}T00:00:00.000Z`);
-}

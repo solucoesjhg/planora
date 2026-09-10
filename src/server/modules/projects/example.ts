@@ -7,6 +7,7 @@
  * project with stuck work all have something to say on day one.
  */
 
+import { calendarDateOf } from "@/domain/types";
 import { keyBetween } from "@/domain/kanban";
 import type { TenantContext } from "@/server/auth/tenant";
 import type { Executor } from "@/server/db/client";
@@ -89,8 +90,8 @@ export async function createExampleProject(
     name: EXAMPLE_PROJECT_NAME,
     description:
       "Um projeto de demonstração. Apague quando quiser — ou renomeie e comece por ele.",
-    startDate: new Date(now.getTime() - 14 * DAY),
-    dueDate: new Date(now.getTime() + 21 * DAY),
+    startDate: calendarDateOf(new Date(now.getTime() - 14 * DAY)),
+    dueDate: calendarDateOf(new Date(now.getTime() + 21 * DAY)),
   });
 
   const columns = await executor
@@ -129,7 +130,7 @@ export async function createExampleProject(
         dueDate:
           seed.dueInDays === undefined
             ? null
-            : new Date(now.getTime() + seed.dueInDays * DAY),
+            : calendarDateOf(new Date(now.getTime() + seed.dueInDays * DAY)),
         position,
         enteredColumnAt: new Date(now.getTime() - 4 * DAY),
         createdBy: context.userId,

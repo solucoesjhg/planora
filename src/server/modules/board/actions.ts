@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { dispatchSoon } from "@/server/events/dispatch-soon";
 import { z } from "zod";
 import { isRefused, type Result } from "@/lib/result";
 import { requireWorkspace } from "@/server/auth/dal";
@@ -51,6 +52,8 @@ export async function moveTaskAction(
   });
 
   revalidatePath(`/projects/${parsed.projectId}`);
+
+  dispatchSoon();
   return toResult(result);
 }
 
@@ -68,6 +71,7 @@ export async function createColumnAction(
 
   const result = await createColumn(getDatabase(), context, parsed);
   revalidatePath(`/projects/${parsed.projectId}`);
+  dispatchSoon();
   return toResult(result);
 }
 
@@ -89,6 +93,8 @@ export async function renameColumnAction(
   });
 
   revalidatePath(`/projects/${parsed.projectId}`);
+
+  dispatchSoon();
   return toResult(result);
 }
 
@@ -105,6 +111,7 @@ export async function deleteColumnAction(
 
   const result = await deleteColumn(getDatabase(), context, parsed.columnId);
   revalidatePath(`/projects/${parsed.projectId}`);
+  dispatchSoon();
   return toResult(result);
 }
 
@@ -126,6 +133,8 @@ export async function moveColumnAction(
   });
 
   revalidatePath(`/projects/${parsed.projectId}`);
+
+  dispatchSoon();
   return toResult(result);
 }
 

@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   SEED_EPOCH,
   columns,
-  daysAfter,
+  dayAfter,
+  dayBefore,
   daysBefore,
   makeBoard,
   makeTask,
@@ -98,9 +99,9 @@ describe("dimensions that cannot be computed are dropped", () => {
 
   it("counts lateness on a ramp, not as a switch", () => {
     const tasks = [
-      makeTask({ id: "late", dueDate: daysBefore(7) }),
-      makeTask({ id: "soon", dueDate: daysAfter(3) }),
-      makeTask({ id: "later", dueDate: daysAfter(9) }),
+      makeTask({ id: "late", dueDate: dayBefore(7) }),
+      makeTask({ id: "soon", dueDate: dayAfter(3) }),
+      makeTask({ id: "later", dueDate: dayAfter(9) }),
     ];
     const report = projectHealth({
       project,
@@ -160,7 +161,7 @@ describe("the ceiling reads the work, not the clock", () => {
     // three weeks. The old worst-dimension clamp made this critical.
     const tasks = tasksWhere(4, () => ({ enteredColumnAt: daysBefore(21) }));
     const report = projectHealth({
-      project: { startDate: daysBefore(10), dueDate: daysAfter(30), createdAt: daysBefore(10) },
+      project: { startDate: dayBefore(10), dueDate: dayAfter(30), createdAt: daysBefore(10) },
       context: makeBoard(tasks),
       activity: activityOf(tasks),
       now,
@@ -244,7 +245,7 @@ describe("findings", () => {
     const tasks = [
       makeTask({ id: "b1", blocked: true, priority: "high" }),
       makeTask({ id: "b2", blocked: true, priority: "high" }),
-      makeTask({ id: "late", dueDate: daysBefore(30) }),
+      makeTask({ id: "late", dueDate: dayBefore(30) }),
       makeTask({ id: "d" }),
     ];
     const report = projectHealth({

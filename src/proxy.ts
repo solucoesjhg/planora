@@ -15,6 +15,8 @@ const PROTECTED = [
   "/projects",
   "/board",
   "/files",
+  "/users",
+  "/assistant",
   "/settings",
   "/invitations",
 ];
@@ -43,6 +45,8 @@ export const config = {
     "/projects/:path*",
     "/board/:path*",
     "/files/:path*",
+    "/users/:path*",
+    "/assistant/:path*",
     "/settings/:path*",
     "/invitations/:path*",
     "/login",

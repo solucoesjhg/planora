@@ -6,7 +6,7 @@
  * anything — that is the service's job, and the rule's.
  */
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { BoardColumn, BoardContext, Task } from "@/domain/types";
 import type { TenantContext } from "@/server/auth/tenant";
 import type { Executor } from "@/server/db/client";
@@ -149,6 +149,41 @@ export function toDomainTask(
 }
 
 /** The last ordering key in a column, so a move can append after it. */
+/** Every live card in a column, in board order. */
+export async function positionsIn(
+  executor: Executor,
+  context: TenantContext,
+  columnId: string,
+): Promise<{ id: string; position: string }[]> {
+  return executor
+    .select({ id: tasks.id, position: tasks.position })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.workspaceId, context.workspaceId),
+        eq(tasks.columnId, columnId),
+        isNull(tasks.deletedAt),
+      ),
+    )
+    .orderBy(asc(tasks.position), asc(tasks.id));
+}
+
+/** Rewrites the order of a column, one statement per card. */
+export async function rewritePositions(
+  executor: Executor,
+  context: TenantContext,
+  ordered: readonly { id: string; position: string }[],
+): Promise<void> {
+  for (const row of ordered) {
+    await executor
+      .update(tasks)
+      .set({ position: row.position, updatedAt: new Date() })
+      .where(
+        and(eq(tasks.workspaceId, context.workspaceId), eq(tasks.id, row.id)),
+      );
+  }
+}
+
 export async function lastPositionIn(
   executor: Executor,
   context: TenantContext,

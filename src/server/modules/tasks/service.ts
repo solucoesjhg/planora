@@ -11,7 +11,7 @@
 import { and, eq } from "drizzle-orm";
 import { canAddDependency, type DependencyRefusal } from "@/domain/dependencies";
 import { keyBetween } from "@/domain/kanban";
-import type { BoardContext, Priority } from "@/domain/types";
+import type { BoardContext, CalendarDate, Priority } from "@/domain/types";
 import { ok, refused, type Result } from "@/lib/result";
 import { can, type TenantContext } from "@/server/auth/tenant";
 import { isBlankRichText, sanitizeRichText } from "@/server/content/html";
@@ -48,7 +48,7 @@ export type CreateTaskInput = {
   readonly columnId: string;
   readonly title: string;
   readonly priority?: Priority;
-  readonly dueDate?: Date | null;
+  readonly dueDate?: CalendarDate | null;
 };
 
 export async function createTask(
@@ -112,8 +112,8 @@ export type UpdateTaskInput = {
   readonly body?: string;
   readonly internalNotes?: string;
   readonly priority?: Priority;
-  readonly startDate?: Date | null;
-  readonly dueDate?: Date | null;
+  readonly startDate?: CalendarDate | null;
+  readonly dueDate?: CalendarDate | null;
   readonly blocked?: boolean;
   readonly blockReason?: string | null;
   readonly now?: Date;

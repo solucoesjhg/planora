@@ -9,6 +9,7 @@
  */
 
 import { revalidatePath } from "next/cache";
+import { dispatchSoon } from "@/server/events/dispatch-soon";
 import { z } from "zod";
 import { isRefused, type Result } from "@/lib/result";
 import { requireWorkspace } from "@/server/auth/dal";
@@ -27,11 +28,15 @@ export type ActionResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly reason: ProjectFailure; readonly detail?: string };
 
+/** A calendar day travels as `YYYY-MM-DD`, never as an instant. */
 const optionalDate = z
   .string()
   .trim()
   .optional()
-  .transform((value) => (value ? new Date(`${value}T12:00:00`) : null));
+  .transform((value) => (value ? value : null))
+  .refine((value) => value === null || /^\d{4}-\d{2}-\d{2}$/.test(value), {
+    message: "expected YYYY-MM-DD",
+  });
 
 const createSchema = z.object({
   name: z.string().trim().min(1, "Dê um nome ao projeto").max(120),
@@ -56,6 +61,8 @@ export async function createProjectAction(
   });
 
   revalidatePath("/projects");
+
+  dispatchSoon();
   return toActionResult(result);
 }
 
@@ -79,6 +86,8 @@ export async function editProjectAction(
   });
 
   revalidatePath("/projects");
+
+  dispatchSoon();
   return toActionResult(result);
 }
 
@@ -100,6 +109,8 @@ export async function completeProjectAction(
   });
 
   revalidatePath("/projects");
+
+  dispatchSoon();
   return toActionResult(result);
 }
 
@@ -113,6 +124,7 @@ export async function reopenProjectAction(
 
   const result = await reopenProject(getDatabase(), context, projectId);
   revalidatePath("/projects");
+  dispatchSoon();
   return toActionResult(result);
 }
 
@@ -124,6 +136,7 @@ export async function deleteProjectAction(
 
   const result = await deleteProject(getDatabase(), context, projectId);
   revalidatePath("/projects");
+  dispatchSoon();
   return toActionResult(result);
 }
 
@@ -146,6 +159,8 @@ export async function moveProjectAction(
   });
 
   revalidatePath("/projects");
+
+  dispatchSoon();
   return toActionResult(result);
 }
 

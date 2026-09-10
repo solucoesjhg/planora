@@ -89,9 +89,12 @@ export function resendSender(apiKey: string, from: string): EmailSender {
 }
 
 /**
- * The sender this process should use. Resend when it is configured, the local
- * inbox otherwise — so a missing key in development is a visible message in
- * Mailpit rather than a silent failure in production.
+ * The sender this process should use.
+ *
+ * Resend when it is configured, the local inbox otherwise — except in
+ * production, where the local inbox is a machine that does not exist. Falling
+ * back there would make every verification email throw at signup, which is a
+ * broken product for anybody trying to create an account.
  */
 export function senderFromEnvironment(
   env: NodeJS.ProcessEnv = process.env,
@@ -100,6 +103,15 @@ export function senderFromEnvironment(
   const apiKey = env["RESEND_API_KEY"];
 
   if (apiKey && apiKey.length > 0) return resendSender(apiKey, from);
+
+  if (env["NODE_ENV"] === "production") {
+    throw new Error(
+      "RESEND_API_KEY is required in production: without it, account " +
+        "verification and invitations would be posted to a local inbox that " +
+        "is not there.",
+    );
+  }
+
   return mailpitSender(env["MAILPIT_URL"] ?? "http://127.0.0.1:8025", from);
 }
 
