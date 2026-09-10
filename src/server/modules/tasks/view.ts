@@ -1,18 +1,17 @@
 import "server-only";
 
 import type { Priority } from "@/domain/types";
-import { isRefused } from "@/lib/result";
 import { can, type TenantContext } from "@/server/auth/tenant";
 import type { Database } from "@/server/db/client";
-import { getStorage } from "@/server/storage";
-import { linkFor } from "./attachments";
+import { attachmentUrl } from "./attachments";
 import { loadTaskDocument, tasksOfProject } from "./repository";
 
 /**
  * The task, shaped for the screen (DEVELOPMENT_PLAN.md §2.2).
  *
- * Dates leave as ISO strings and every file arrives with a link already signed,
- * so the client island renders without asking the server a second question.
+ * Dates leave as ISO strings, and every file arrives as its stable address
+ * rather than a signed URL: a page left open for ten minutes would otherwise
+ * hold links that have already expired.
  */
 
 export type TaskFileView = {
@@ -90,25 +89,18 @@ export async function loadTaskView(
   const document = await loadTaskDocument(db, context, taskId);
   if (!document) return null;
 
-  const storage = getStorage();
   const dependsOnIds = new Set(document.dependsOn.map((each) => each.taskId));
 
-  const [files, siblings] = await Promise.all([
-    Promise.all(
-      document.files.map(async (file) => {
-        const link = await linkFor(db, context, storage, file.id);
-        return {
-          id: file.id,
-          name: file.name,
-          mime: file.mime,
-          size: file.size,
-          url: isRefused(link) ? "" : link.value.url,
-          isImage: file.mime.startsWith("image/"),
-        };
-      }),
-    ),
-    tasksOfProject(db, context, document.task.projectId),
-  ]);
+  const files = document.files.map((file) => ({
+    id: file.id,
+    name: file.name,
+    mime: file.mime,
+    size: file.size,
+    url: attachmentUrl(file.id),
+    isImage: file.mime.startsWith("image/"),
+  }));
+
+  const siblings = await tasksOfProject(db, context, document.task.projectId);
 
   return {
     id: document.task.id,

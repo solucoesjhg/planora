@@ -5,8 +5,8 @@ import { tenantContext } from "@/server/auth/tenant";
 import type { Connection } from "@/server/db/client";
 import { outboxEvents, taskComments, tasks } from "@/server/db/schema";
 import { seed, seedIds } from "@/server/db/seed";
-import { connectAndMigrate, hasDatabase } from "@/server/test-support/database";
-import { loadTaskDocument } from "./repository";
+import { connect, connectAndMigrate, hasDatabase } from "@/server/test-support/database";
+import { loadTaskDocument, nextTaskNumber } from "./repository";
 import {
   addChecklistItem,
   addComment,
@@ -23,6 +23,8 @@ const suite = describe.skipIf(!hasDatabase);
 
 suite("the task as a document", () => {
   let connection: Connection;
+  /** Separate connections, or nothing about concurrency is being tested. */
+  let elsewhere: Connection;
 
   const owner = () => tenantContext(seedIds.workspace, seedIds.user, "owner");
   const viewer = () => tenantContext(seedIds.workspace, seedIds.user, "viewer");
@@ -30,10 +32,11 @@ suite("the task as a document", () => {
 
   beforeAll(async () => {
     connection = await connectAndMigrate();
+    elsewhere = connect(8);
   });
 
   afterAll(async () => {
-    await connection.close();
+    await Promise.all([connection.close(), elsewhere.close()]);
   });
 
   beforeEach(async () => {
@@ -69,6 +72,54 @@ suite("the task as a document", () => {
       );
     const highest = others.map((each) => each.position).sort().at(-1);
     expect(row?.position).toBe(highest);
+  });
+
+  it("makes a second writer wait for the number", async () => {
+    // The regression: `max(number) + 1` without a lock hands the same number to
+    // two transactions that overlap, and the second insert dies on the unique
+    // index. Proof that the lock is there: while one connection holds it, the
+    // other cannot get past the read.
+    let second: Promise<number> | null = null;
+
+    await connection.db.transaction(async (first) => {
+      await nextTaskNumber(first, owner(), projectId);
+
+      second = elsewhere.db.transaction(async (other) =>
+        nextTaskNumber(other, owner(), projectId),
+      );
+
+      const outcome = await Promise.race([
+        second.then(() => "answered" as const),
+        new Promise<"waiting">((resolve) => setTimeout(() => resolve("waiting"), 300)),
+      ]);
+
+      expect(outcome).toBe("waiting");
+    });
+
+    // And once the first transaction ends, it goes through.
+    expect(await second!).toBe(13);
+  });
+
+  it("gives cards written at the same moment different numbers", async () => {
+    const titles = ["A", "B", "C", "D", "E", "F"];
+
+    const results = await Promise.all(
+      titles.map((title) =>
+        createTask(elsewhere.db, owner(), {
+          projectId,
+          columnId: seedIds.column(0, 1),
+          title,
+        }),
+      ),
+    );
+
+    const numbers = results.map((result) =>
+      isRefused(result) ? -1 : result.value.number,
+    );
+
+    expect(new Set(numbers).size).toBe(titles.length);
+    expect(numbers).not.toContain(-1);
+    expect([...numbers].sort((a, b) => a - b)).toStrictEqual([13, 14, 15, 16, 17, 18]);
   });
 
   it("refuses an empty title, and a viewer", async () => {

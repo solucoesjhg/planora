@@ -251,12 +251,31 @@ export async function updateTaskRow(
     .where(and(eq(tasks.workspaceId, context.workspaceId), eq(tasks.id, taskId)));
 }
 
-/** TSK-N is per project and never reused, so it is read under the row lock. */
+/**
+ * The next TSK-N for a project — per project, and never reused.
+ *
+ * The project's row is locked first. `max(number) + 1` on its own hands the
+ * same number to any two transactions that overlap, which is what two people
+ * adding a card in the same moment produce; the second insert then dies on
+ * `tasks_project_number` as a thrown error rather than a refusal. The lock is
+ * held until the surrounding transaction ends, so this belongs inside one.
+ */
 export async function nextTaskNumber(
   executor: Executor,
   context: TenantContext,
   projectId: string,
 ): Promise<number> {
+  await executor
+    .select({ id: projects.id })
+    .from(projects)
+    .where(
+      and(
+        eq(projects.workspaceId, context.workspaceId),
+        eq(projects.id, projectId),
+      ),
+    )
+    .for("update");
+
   const [row] = await executor
     .select({ highest: sql<number>`coalesce(max(${tasks.number}), 0)` })
     .from(tasks)

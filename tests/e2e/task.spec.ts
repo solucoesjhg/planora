@@ -100,7 +100,7 @@ test.describe("the task as a document", () => {
     await expect(page.getByText("Checklist · 1/1")).toBeVisible();
   });
 
-  test("an attached file is served by a signed URL, and only that URL", async ({
+  test("an attached file has a stable address that signs a fresh URL", async ({
     page,
     request,
   }) => {
@@ -116,20 +116,35 @@ test.describe("the task as a document", () => {
     const file = modal.getByRole("link", { name: "Abrir orcamento.txt" });
     await expect(file).toBeVisible();
 
-    const url = await file.getAttribute("href");
-    expect(url).toContain("/api/files/");
+    // The address stored in the page carries no signature: it outlives one.
+    const address = (await file.getAttribute("href"))!;
+    expect(address).toMatch(/^\/api\/attachments\/[0-9a-f-]{36}$/);
 
-    // The signed URL works.
-    const signed = await request.get(url!);
-    expect(signed.status()).toBe(200);
-    expect(await signed.text()).toContain("R$ 1.200");
+    // Signed in, it redirects to a URL that was signed just now.
+    const redirect = await page.request.get(address, { maxRedirects: 0 });
+    expect(redirect.status()).toBe(302);
+    const signed = redirect.headers()["location"]!;
+    expect(signed).toContain("/api/files/");
+    expect(signed).toContain("sig=");
 
-    // The same path without a signature does not.
-    const bare = await request.get(url!.split("?")[0]!);
+    const bytes = await page.request.get(signed);
+    expect(bytes.status()).toBe(200);
+    expect(await bytes.text()).toContain("R$ 1.200");
+
+    // Asking again signs again: the expiry has moved forward, which is what
+    // makes the address outlive any single signature.
+    await page.waitForTimeout(1100);
+    const again = await page.request.get(address, { maxRedirects: 0 });
+    const expiryOf = (url: string) =>
+      Number(new URL(url).searchParams.get("exp"));
+    expect(expiryOf(again.headers()["location"]!)).toBeGreaterThan(expiryOf(signed));
+
+    // The same path without a signature does not work.
+    const bare = await request.get(new URL(signed).pathname);
     expect(bare.status()).toBe(403);
 
     // Nor does one whose expiry was pushed forward.
-    const stretched = new URL(url!);
+    const stretched = new URL(signed);
     stretched.searchParams.set(
       "exp",
       String(Number(stretched.searchParams.get("exp")) + 86_400),
@@ -137,9 +152,16 @@ test.describe("the task as a document", () => {
     expect((await request.get(stretched.toString())).status()).toBe(403);
 
     // Nor does one signed for a different file.
-    const elsewhere = new URL(url!);
+    const elsewhere = new URL(signed);
     elsewhere.pathname = elsewhere.pathname.replace("orcamento.txt", "outro.txt");
     expect((await request.get(elsewhere.toString())).status()).toBe(403);
+
+    // And the stable address itself is nobody's without a session: `request`
+    // carries no cookies.
+    const anonymous = await request.get(new URL(address, page.url()).toString(), {
+      maxRedirects: 0,
+    });
+    expect(anonymous.status()).toBe(401);
   });
 
   test("a new card is written where it will live", async ({ page }) => {

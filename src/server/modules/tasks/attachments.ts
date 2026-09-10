@@ -53,6 +53,16 @@ export const IMAGE_MIME_TYPES = ALLOWED_MIME_TYPES.filter((mime) =>
   mime.startsWith("image/"),
 );
 
+/**
+ * Where an attachment lives, as far as the rest of the application is
+ * concerned. Stable: it goes into a task's body and has to still work next
+ * year. The signed URL is what this address redirects to, freshly, on each
+ * request — after the workspace check.
+ */
+export function attachmentUrl(attachmentId: string): string {
+  return `/api/attachments/${attachmentId}`;
+}
+
 export type RequestUploadInput = {
   readonly projectId: string;
   readonly taskId: string | null;

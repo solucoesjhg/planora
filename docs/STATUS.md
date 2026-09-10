@@ -104,6 +104,23 @@ of their column.
 
 ## Decisions taken since the plan
 
+- **An attachment has a stable address, not a signed URL.** `/api/attachments/<id>`
+  checks the session and the workspace and redirects to a URL signed on the
+  spot. A signed URL is right for delivering a file and wrong for referring to
+  one: the first cut put a one-hour URL into the task body, so an image dropped
+  into a description would have broken an hour later, permanently — and the
+  download links on the page were signed at render, so a tab open for six
+  minutes held dead links.
+- **TSK-N is read under a lock — now actually.** `max(number) + 1` took no lock
+  while the comment claimed it did; two overlapping transactions got the same
+  number and the second insert died on `tasks_project_number` as a thrown error
+  rather than a refusal. The project's row is locked first.
+- **The integration harness opened one connection.** Every statement ran in
+  order on it, so a test written to make two transactions overlap proved
+  nothing — the first concurrency test for TSK-N passed against the broken
+  code. `connect()` hands out separate connections, and the regression tests use
+  them: with the lock removed they fail with the duplicate key.
+
 - **`server/storage/` is a port with three adapters**, the way email has three
   senders: Supabase Storage, the filesystem, and memory for tests. The
   filesystem adapter signs its own URLs with the secret Better Auth signs with

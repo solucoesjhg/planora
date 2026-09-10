@@ -8,8 +8,8 @@ import { requireWorkspace } from "@/server/auth/dal";
 import { getDatabase } from "@/server/db/client";
 import { getStorage } from "@/server/storage";
 import {
+  attachmentUrl,
   confirmUpload,
-  linkFor,
   removeAttachment,
   requestUpload,
   type AttachmentFailure,
@@ -335,23 +335,19 @@ export async function confirmUploadAction(
   const parsed = confirmSchema.parse(input);
   const context = await requireWorkspace();
 
-  const database = getDatabase();
-  const storage = getStorage();
-
   const confirmed = await confirmUpload(
-    database,
+    getDatabase(),
     context,
-    storage,
+    getStorage(),
     parsed.attachmentId,
   );
   if (isRefused(confirmed)) return failure(confirmed);
 
-  // The editor needs somewhere to point an image at straight away.
-  const link = await linkFor(database, context, storage, parsed.attachmentId, 60 * 60);
-  if (isRefused(link)) return failure(link);
-
   refresh(parsed.projectId, parsed.taskId ?? undefined);
-  return { ok: true, value: { url: link.value.url } };
+  // The stable address, not a signed URL: an image dropped into a task body is
+  // stored with this `src` and has to still load long after any signature has
+  // expired.
+  return { ok: true, value: { url: attachmentUrl(parsed.attachmentId) } };
 }
 
 const attachmentSchema = z.object({
@@ -359,29 +355,6 @@ const attachmentSchema = z.object({
   taskId: uuid.nullable(),
   attachmentId: uuid,
 });
-
-export async function attachmentLinkAction(
-  input: z.input<typeof attachmentSchema>,
-): Promise<ActionResult<AttachmentFailure, { url: string; expiresAt: string }>> {
-  const parsed = attachmentSchema.parse(input);
-  const context = await requireWorkspace();
-
-  const result = await linkFor(
-    getDatabase(),
-    context,
-    getStorage(),
-    parsed.attachmentId,
-  );
-  if (isRefused(result)) return failure(result);
-
-  return {
-    ok: true,
-    value: {
-      url: result.value.url,
-      expiresAt: result.value.expiresAt.toISOString(),
-    },
-  };
-}
 
 export async function removeAttachmentAction(
   input: z.input<typeof attachmentSchema>,
