@@ -90,8 +90,8 @@ export async function updateTaskAction(
       ? {}
       : { internalNotes: parsed.internalNotes }),
     ...(parsed.priority === undefined ? {} : { priority: parsed.priority }),
-    ...(parsed.startDate === undefined ? {} : { startDate: toDate(parsed.startDate) }),
-    ...(parsed.dueDate === undefined ? {} : { dueDate: toDate(parsed.dueDate) }),
+    ...(parsed.startDate === undefined ? {} : { startDate: parsed.startDate }),
+    ...(parsed.dueDate === undefined ? {} : { dueDate: parsed.dueDate }),
     ...(parsed.blocked === undefined ? {} : { blocked: parsed.blocked }),
     ...(parsed.blockReason === undefined ? {} : { blockReason: parsed.blockReason }),
   });
@@ -387,6 +387,3 @@ function failure<Reason extends string>(result: {
     : { ok: false, reason: result.reason, detail: result.detail };
 }
 
-function toDate(value: string | null): Date | null {
-  return value === null ? null : new Date(`${value}T00:00:00.000Z`);
-}

@@ -6,6 +6,7 @@
  * every task into memory to count it.
  */
 
+import type { CalendarDate } from "@/domain/types";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { keyBetween } from "@/domain/kanban";
 import type { Phase } from "@/domain/types";
@@ -20,8 +21,8 @@ export type ProjectSummary = {
   readonly name: string;
   readonly description: string;
   readonly status: "active" | "completed";
-  readonly startDate: Date | null;
-  readonly dueDate: Date | null;
+  readonly startDate: CalendarDate | null;
+  readonly dueDate: CalendarDate | null;
   readonly position: string;
   readonly clientName: string | null;
   readonly totalTasks: number;
@@ -124,8 +125,8 @@ export type NewProject = {
   readonly name: string;
   readonly description?: string;
   readonly clientId?: string | null;
-  readonly startDate?: Date | null;
-  readonly dueDate?: Date | null;
+  readonly startDate?: CalendarDate | null;
+  readonly dueDate?: CalendarDate | null;
 };
 
 /**

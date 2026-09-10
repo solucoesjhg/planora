@@ -8,10 +8,11 @@
 import type {
   BoardColumn,
   BoardContext,
+  CalendarDate,
   Project,
   Task,
 } from "@/domain/types";
-import { DAY_MS } from "@/domain/types";
+import { DAY_MS, calendarDateOf } from "@/domain/types";
 
 export const SEED_EPOCH = new Date("2026-09-01T12:00:00.000Z");
 
@@ -21,6 +22,15 @@ export function daysBefore(days: number, from: Date = SEED_EPOCH): Date {
 
 export function daysAfter(days: number, from: Date = SEED_EPOCH): Date {
   return new Date(from.getTime() + days * DAY_MS);
+}
+
+/** The same offsets as calendar days, for due dates rather than instants. */
+export function dayBefore(days: number, from: Date = SEED_EPOCH): CalendarDate {
+  return calendarDateOf(daysBefore(days, from));
+}
+
+export function dayAfter(days: number, from: Date = SEED_EPOCH): CalendarDate {
+  return calendarDateOf(daysAfter(days, from));
 }
 
 export const columns = {
@@ -63,7 +73,7 @@ export function makeBoard(
 }
 
 export const project: Project = {
-  startDate: daysBefore(30),
-  dueDate: daysAfter(30),
+  startDate: dayBefore(30),
+  dueDate: dayAfter(30),
   createdAt: daysBefore(30),
 };

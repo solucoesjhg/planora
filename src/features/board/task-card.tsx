@@ -32,7 +32,7 @@ export const TaskCardView = forwardRef<
   ref,
 ) {
   void href;
-  const deadline = deadlineStatus(task.dueDate ? new Date(task.dueDate) : null);
+  const deadline = deadlineStatus(task.dueDate);
   const checklist = task.checklist;
 
   return (

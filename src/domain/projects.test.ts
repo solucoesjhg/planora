@@ -80,24 +80,43 @@ describe("deadlineStatus", () => {
     expect(deadlineStatus(null, now)).toStrictEqual({ kind: "none" });
   });
 
-  it("counts whole days, from the start of today", () => {
-    expect(deadlineStatus(new Date(2026, 8, 12, 1), now)).toStrictEqual({
+  it("counts whole days between two calendar days", () => {
+    expect(deadlineStatus("2026-09-12", now)).toStrictEqual({
       kind: "on-track",
       days: 3,
     });
-    expect(deadlineStatus(new Date(2026, 8, 4, 23), now)).toStrictEqual({
+    expect(deadlineStatus("2026-09-04", now)).toStrictEqual({
       kind: "late",
       days: 5,
     });
   });
 
   it("treats today as its own state, not as one day late", () => {
-    expect(deadlineStatus(new Date(2026, 8, 9, 1), now)).toStrictEqual({
+    expect(deadlineStatus("2026-09-09", now)).toStrictEqual({ kind: "due-today" });
+
+    // Whatever hour of that day it is where the reader is.
+    const lateEvening = new Date(2026, 8, 9, 23, 30);
+    expect(deadlineStatus("2026-09-09", lateEvening)).toStrictEqual({
       kind: "due-today",
     });
-    expect(deadlineStatus(new Date(2026, 8, 9, 23), now)).toStrictEqual({
-      kind: "due-today",
-    });
+  });
+
+  /**
+   * The regression. A due date used to travel as an instant — midnight UTC —
+   * and every zone west of UTC read it back as the day before, so a task due
+   * today was shown as one day late. Nothing here turns a calendar day into a
+   * moment, so there is no zone left to get it wrong.
+   */
+  it("does not care what time it is, only what day", () => {
+    const dawn = new Date(2026, 8, 10, 0, 1);
+    const midnightMinus = new Date(2026, 8, 10, 23, 59);
+
+    for (const instant of [dawn, midnightMinus]) {
+      expect(deadlineStatus("2026-09-15", instant)).toStrictEqual({
+        kind: "on-track",
+        days: 5,
+      });
+    }
   });
 });
 

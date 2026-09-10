@@ -46,7 +46,7 @@ export default async function ProjectsPage() {
               name: project.name,
               description: project.description,
               status: project.status,
-              dueDate: project.dueDate ? project.dueDate.toISOString() : null,
+              dueDate: project.dueDate,
               clientName: project.clientName,
               openTasks: project.openTasks,
               totalTasks: project.totalTasks,
