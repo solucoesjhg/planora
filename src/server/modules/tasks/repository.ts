@@ -8,6 +8,7 @@
 
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import { isId } from "@/lib/id";
 import type { TenantContext } from "@/server/auth/tenant";
 import type { Executor } from "@/server/db/client";
 import {
@@ -58,6 +59,8 @@ export async function findTask(
   context: TenantContext,
   taskId: string,
 ): Promise<TaskRow | null> {
+  if (!isId(taskId)) return null;
+
   const [row] = await executor
     .select()
     .from(tasks)

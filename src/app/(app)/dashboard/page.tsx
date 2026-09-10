@@ -2,20 +2,19 @@ import { FolderKanban } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { requireSession, requireWorkspace } from "@/server/auth/dal";
-import { AccountMenu } from "./account-menu";
+import { requireWorkspace } from "@/server/auth/dal";
+import { AccountBar } from "@/features/workspace/account-bar";
 
 // The real panel arrives in Phase 8. What this proves today is that the DAL
 // resolves a session into a tenant context, and that a workspace exists the
 // moment an account does.
 export default async function DashboardPage() {
-  const session = await requireSession();
   const workspace = await requireWorkspace();
 
   return (
     <AppShell
       title="Painel"
-      account={<AccountMenu name={session.name} email={session.email} />}
+      account={<AccountBar />}
       panelTitle="Contexto"
       panel={<ContextPanel role={workspace.role} />}
     >

@@ -9,6 +9,7 @@
  * component untouched.
  */
 
+import { isId } from "@/lib/id";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { BoardContext, Phase, Priority } from "@/domain/types";
 import type { TenantContext } from "@/server/auth/tenant";
@@ -54,6 +55,8 @@ export async function loadBoardView(
   context: TenantContext,
   projectId: string,
 ): Promise<BoardView | null> {
+  if (!isId(projectId)) return null;
+
   const [project] = await executor
     .select({ id: projects.id, name: projects.name, status: projects.status })
     .from(projects)

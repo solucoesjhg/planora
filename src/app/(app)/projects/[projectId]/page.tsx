@@ -7,16 +7,15 @@ import { projectProgress } from "@/domain/progress";
 import { toDisplay } from "@/domain/types";
 import { Board } from "@/features/board/board";
 import { NewColumnDialog } from "@/features/board/new-column-dialog";
-import { requireSession, requireWorkspace } from "@/server/auth/dal";
+import { requireWorkspace } from "@/server/auth/dal";
 import { getDatabase } from "@/server/db/client";
 import { loadBoardView, toDomainContext } from "@/server/modules/board/view";
-import { AccountMenu } from "@/app/(app)/dashboard/account-menu";
+import { AccountBar } from "@/features/workspace/account-bar";
 
 export default async function BoardPage({
   params,
 }: PageProps<"/projects/[projectId]">) {
   const { projectId } = await params;
-  const session = await requireSession();
   const workspace = await requireWorkspace();
 
   const view = await loadBoardView(getDatabase(), workspace, projectId);
@@ -26,7 +25,7 @@ export default async function BoardPage({
     <ToastProvider>
       <AppShell
         title={view.project.name}
-        account={<AccountMenu name={session.name} email={session.email} />}
+        account={<AccountBar />}
         panelTitle="Progresso"
         panel={<ProgressPanel view={view} />}
       >
