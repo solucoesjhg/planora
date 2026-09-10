@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { dispatchSoon } from "@/server/events/dispatch-soon";
 import { z } from "zod";
 import { PRIORITIES } from "@/domain/types";
 import { isRefused } from "@/lib/result";
@@ -41,6 +42,7 @@ const isoDate = z.iso.date().nullable();
 function refresh(projectId: string, taskId?: string): void {
   revalidatePath(`/projects/${projectId}`);
   if (taskId) revalidatePath(`/projects/${projectId}/tasks/${taskId}`);
+  dispatchSoon();
 }
 
 const createSchema = z.object({

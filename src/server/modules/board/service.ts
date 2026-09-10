@@ -7,7 +7,13 @@
  * already showed.
  */
 
-import { canMoveTask, keyBetween, type MoveRefusal } from "@/domain/kanban";
+import {
+  canMoveTask,
+  keyBetween,
+  needsRebalance,
+  rebalance,
+  type MoveRefusal,
+} from "@/domain/kanban";
 import { ok, refused, type Result } from "@/lib/result";
 import { archiveNotes } from "@/domain/phase-history";
 import type { Phase } from "@/domain/types";
@@ -21,8 +27,10 @@ import {
   findTask,
   lastPositionIn,
   loadBoardContext,
+  positionsIn,
   positionsOfTasks,
   recordPhaseChange,
+  rewritePositions,
 } from "./repository";
 
 export type MoveTaskFailure = MoveRefusal | "not-found" | "forbidden";
@@ -116,6 +124,22 @@ export async function moveTask(
       body: archived.body,
       internalNotes: archived.notes,
     });
+
+    /**
+     * Fractional keys grow when cards keep landing between the same two
+     * neighbours. The comment on `needsRebalance` claimed a column rebalanced
+     * itself and nothing did it — so here it is, in the same transaction as
+     * the move that grew the key, and only for the column it grew in.
+     */
+    const settled = await positionsIn(tx, context, to.id);
+    if (needsRebalance(settled.map((row) => row.position))) {
+      const fresh = rebalance(settled.length);
+      await rewritePositions(
+        tx,
+        context,
+        settled.map((row, index) => ({ id: row.id, position: fresh[index]! })),
+      );
+    }
 
     await recordPhaseChange(tx, context, {
       taskId: row.id,

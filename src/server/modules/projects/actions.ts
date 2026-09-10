@@ -9,6 +9,7 @@
  */
 
 import { revalidatePath } from "next/cache";
+import { dispatchSoon } from "@/server/events/dispatch-soon";
 import { z } from "zod";
 import { isRefused, type Result } from "@/lib/result";
 import { requireWorkspace } from "@/server/auth/dal";
@@ -60,6 +61,8 @@ export async function createProjectAction(
   });
 
   revalidatePath("/projects");
+
+  dispatchSoon();
   return toActionResult(result);
 }
 
@@ -83,6 +86,8 @@ export async function editProjectAction(
   });
 
   revalidatePath("/projects");
+
+  dispatchSoon();
   return toActionResult(result);
 }
 
@@ -104,6 +109,8 @@ export async function completeProjectAction(
   });
 
   revalidatePath("/projects");
+
+  dispatchSoon();
   return toActionResult(result);
 }
 
@@ -117,6 +124,7 @@ export async function reopenProjectAction(
 
   const result = await reopenProject(getDatabase(), context, projectId);
   revalidatePath("/projects");
+  dispatchSoon();
   return toActionResult(result);
 }
 
@@ -128,6 +136,7 @@ export async function deleteProjectAction(
 
   const result = await deleteProject(getDatabase(), context, projectId);
   revalidatePath("/projects");
+  dispatchSoon();
   return toActionResult(result);
 }
 
@@ -150,6 +159,8 @@ export async function moveProjectAction(
   });
 
   revalidatePath("/projects");
+
+  dispatchSoon();
   return toActionResult(result);
 }
 

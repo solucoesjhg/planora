@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { dispatchSoon } from "@/server/events/dispatch-soon";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { isRefused } from "@/lib/result";
@@ -40,6 +41,8 @@ export async function inviteMemberAction(
   }
 
   revalidatePath("/users");
+
+  dispatchSoon();
   return { ok: true };
 }
 
@@ -72,5 +75,7 @@ export async function switchWorkspaceAction(
   });
 
   revalidatePath("/", "layout");
+
+  dispatchSoon();
   return { ok: true };
 }
