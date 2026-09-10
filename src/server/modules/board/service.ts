@@ -21,6 +21,7 @@ import {
   findTask,
   lastPositionIn,
   loadBoardContext,
+  positionsOfTasks,
   recordPhaseChange,
 } from "./repository";
 
@@ -34,6 +35,13 @@ export type MoveTaskInput = {
   readonly now?: Date;
   /** How the phase left behind is titled in the archived note (pt-BR at the edge). */
   readonly phaseLabel?: (phase: Phase) => string;
+  /**
+   * Where the card landed, as the two cards it was dropped between. The board
+   * sends neighbours rather than an index, so a stale list on the client cannot
+   * reorder a column it did not mean to touch. Both absent means the end.
+   */
+  readonly afterTaskId?: string | null;
+  readonly beforeTaskId?: string | null;
 };
 
 export type MoveTaskSuccess = {
@@ -88,9 +96,22 @@ export async function moveTask(
         })
       : { body: row.body, notes: row.internalNotes };
 
+    const neighbours = await positionsOfTasks(tx, context, [
+      input.afterTaskId ?? "",
+      input.beforeTaskId ?? "",
+    ]);
+    const lower = input.afterTaskId
+      ? (neighbours.get(input.afterTaskId) ?? null)
+      : input.beforeTaskId
+        ? null
+        : await lastPositionIn(tx, context, to.id);
+    const upper = input.beforeTaskId
+      ? (neighbours.get(input.beforeTaskId) ?? null)
+      : null;
+
     await applyMove(tx, context, row.id, {
       columnId: to.id,
-      position: keyBetween(await lastPositionIn(tx, context, to.id), null),
+      position: keyBetween(lower, upper),
       enteredColumnAt: now,
       body: archived.body,
       internalNotes: archived.notes,

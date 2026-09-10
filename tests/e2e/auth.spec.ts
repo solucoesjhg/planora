@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { submitRegistration, uniqueEmail } from "./support/account";
 
 /**
  * The Phase 3 criterion, end to end: an account is created, the verification
@@ -13,15 +14,12 @@ test("signing up leads to a verified account with a workspace", async ({
   page,
   request,
 }) => {
-  const email = `e2e-${Date.now()}@example.com`;
+  const email = uniqueEmail();
 
-  await page.goto("/register");
-  await page.getByLabel("Nome").fill("Pessoa de Teste");
-  await page.getByLabel("E-mail").fill(email);
-  await page.getByLabel("Senha").fill(PASSWORD);
-  await page.getByRole("button", { name: "Criar conta" }).click();
-
-  await expect(page.getByRole("heading", { name: "Confirme seu e-mail" })).toBeVisible();
+  await submitRegistration(page, email, PASSWORD);
+  await expect(
+    page.getByRole("heading", { name: "Confirme seu e-mail" }),
+  ).toBeVisible();
 
   const verificationUrl = await waitForVerificationLink(request, email);
   await page.goto(verificationUrl);

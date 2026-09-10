@@ -129,6 +129,25 @@
   }
 
   /**
+   * Drop Catch (§3.6): a refused move sends the card back with a short elastic
+   * recoil, rather than opening a dialog to say no.
+   */
+  @keyframes pln-bounce {
+    0% {
+      transform: translateX(6px);
+    }
+    45% {
+      transform: translateX(-4px);
+    }
+    75% {
+      transform: translateX(2px);
+    }
+    100% {
+      transform: translateX(0);
+    }
+  }
+
+  /**
    * Shows one of two children according to the theme in force, so a toggle can
    * render both icons without keeping the theme in React state as well.
    * Mirrors the token cascade exactly: dark by default.
