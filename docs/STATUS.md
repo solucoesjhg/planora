@@ -68,7 +68,11 @@ of their column.
 ## Next
 
 - Review and merge the Phase 7 branch.
-- **The deployed environment is the one Phase 3 item still open.** A managed
+- **The deployed environment is being set up now** — Supabase in São Paulo,
+  Vercel in `gru1`, Resend for email. The pipeline side is done and on
+  `review-repairs`: `docs/DEPLOY.md` has the steps, the variables and the five
+  checks that follow the first deploy. What is left needs accounts.
+- **The deployed environment was the one Phase 3 item still open.** A managed
   Supabase project plus a Vercel deployment, so verification and invitation
   links have a real URL, and migrations run from the pipeline. It needs
   accounts on external services, so it waits for a decision.

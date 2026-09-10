@@ -38,6 +38,13 @@ start in production rather than post mail to a local inbox that is not there.
 2. Verify a domain, or use Resend's onboarding sender while testing.
 3. `EMAIL_FROM` must match a sender that domain allows.
 
+**The onboarding sender only delivers to you.** With
+`EMAIL_FROM="Planora <onboarding@resend.dev>"`, Resend accepts every message
+but delivers only to the address that owns the account — anything else is
+dropped, with a 200 and no bounce. So the first signup works, an invitation to
+a colleague appears to send and never arrives, and nothing in the logs says
+why. Verify a domain before inviting anybody who is not you.
+
 ### 3. Vercel — the deployment
 
 1. Import `solucoesjhg/planora`. The framework is detected; the build command
@@ -104,7 +111,7 @@ Check these in order — each one has already been the cause of a failure here:
 
 ## Region
 
-`vercel.json` pins the functions to `gru1` (São Paulo). Change it to match the
-Supabase region you chose — a function in Virginia talking to a database in
+`vercel.json` pins the functions to `gru1` (São Paulo), matching a Supabase
+project in `sa-east-1`. Change both together if you ever move one — a function in Virginia talking to a database in
 São Paulo pays ~200ms on every query, and this application makes several per
 page.
