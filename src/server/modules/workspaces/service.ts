@@ -22,7 +22,11 @@ import { invitationEmail } from "@/server/email/templates";
 
 const INVITATION_DAYS = 7;
 
-export type InviteFailure = "forbidden" | "already-member" | "already-invited";
+export type InviteFailure =
+  | "forbidden"
+  | "already-member"
+  | "already-invited"
+  | "undeliverable";
 
 export type InviteInput = {
   readonly email: string;
@@ -86,14 +90,32 @@ export async function inviteMember(
     .where(eq(users.id, context.userId))
     .limit(1);
 
-  await input.sender.send(
-    invitationEmail({
-      to: email,
-      workspaceName: workspace?.name ?? "Planora",
-      invitedByName: invitedBy?.name ?? "Alguém",
-      url: `${input.baseUrl}/invitations/${token}`,
-    }),
-  );
+/**
+   * The row exists and the link is only in this message: if it cannot be
+   * delivered, the invitation must not survive. Resend refuses outright when
+   * the sender is its test domain and the recipient is anybody but the account
+   * holder — which used to leave a pending invitation nobody could receive
+   * and nobody could cancel, since a second attempt answers "already invited".
+   */
+  try {
+    await input.sender.send(
+      invitationEmail({
+        to: email,
+        workspaceName: workspace?.name ?? "Planora",
+        invitedByName: invitedBy?.name ?? "Alguém",
+        url: `${input.baseUrl}/invitations/${token}`,
+      }),
+    );
+  } catch (error) {
+    await db
+      .delete(workspaceInvitations)
+      .where(eq(workspaceInvitations.id, invitation.id));
+
+    return refused(
+      "undeliverable",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 
   return ok({ invitationId: invitation.id, token });
 }

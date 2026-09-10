@@ -1,3 +1,4 @@
+import { tenantContext } from "@/server/auth/tenant";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { isRefused } from "@/lib/result";
@@ -327,6 +328,38 @@ suite("invitations", () => {
     const memberships = await membershipsOf(connection.db, user!.id);
     return { userId: user!.id, workspaceId: memberships[0]!.workspaceId };
   }
+
+  it("leaves no invitation behind when the message cannot be delivered", async () => {
+    const refusing = {
+      name: "refusing",
+      async send() {
+        // What Resend answers when the sender is its test domain and the
+        // recipient is anybody but the account holder.
+        throw new Error("You can only send testing emails to your own email address");
+      },
+    };
+
+    const host = await register("Anfitriã", "anfitria@example.com");
+
+    const result = await inviteMember(
+      connection.db,
+      tenantContext(host.workspaceId, host.userId, "owner"),
+      {
+        email: "outra.pessoa@example.com",
+        baseUrl: "http://localhost:3000",
+        sender: refusing,
+      },
+    );
+
+    expect(isRefused(result) && result.reason).toBe("undeliverable");
+
+    // Nothing pending: a second attempt must not answer "already invited".
+    const rows = await connection.db
+      .select()
+      .from(workspaceInvitations)
+      .where(eq(workspaceInvitations.email, "outra.pessoa@example.com"));
+    expect(rows).toHaveLength(0);
+  });
 
   it("emails an invitation and lets the invitee join with the token", async () => {
     const owner = await register("Henrique", "h@example.com");
