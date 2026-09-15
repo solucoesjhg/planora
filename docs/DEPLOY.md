@@ -200,6 +200,14 @@ not be there next request.
 
 Migrations are never applied by hand from a laptop (§7 Phase 3).
 
+**Only `main` is built.** `vercel.json` carries an `ignoreCommand` that skips
+every deployment whose `VERCEL_ENV` is not `production`. Until Phase 11 gives
+each pull request a database of its own, a preview would either point at the
+production database or have none — the first is dangerous, the second answers
+every page with `DATABASE_URL is not set`. The same switch exists in the
+dashboard under *Settings → Build and Deployment → Ignored Build Step*, but the
+repository is where it belongs.
+
 ---
 
 ## After the first deploy
