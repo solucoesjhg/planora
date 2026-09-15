@@ -246,9 +246,13 @@ Check these in order — each one has already been the cause of a failure here:
    - A toast ending *o log do servidor diz o motivo* means the store threw on
      the server, before the browser sent a byte. The runtime log has the cause
      on a line starting `[attachments] the store failed to`: `Bucket not found`
-     is a bucket whose name does not match `SUPABASE_STORAGE_BUCKET` (1.2); a
-     message about the JWT or the signature is `SUPABASE_SERVICE_ROLE_KEY`
-     pasted wrong (1.3).
+     is a bucket whose name does not match `SUPABASE_STORAGE_BUCKET` (1.2);
+     `Invalid API key` is `SUPABASE_SERVICE_ROLE_KEY` holding something that is
+     not a key of this project at all — cut short when pasted, copied from
+     another project, or the *JWT secret* or the project ref copied instead of
+     the secret key (1.3); a message about row-level security is the
+     *publishable* / `anon` key where the secret one should be. Variables only
+     reach the application on the next deploy.
    - A toast saying only *O armazenamento de arquivos não respondeu* means the
      browser's own upload to Supabase got no answer — the network, or a CORS
      preflight refused. The browser console (F12) has the reason.
