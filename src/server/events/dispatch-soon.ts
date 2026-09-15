@@ -2,7 +2,9 @@ import "server-only";
 
 import { after } from "next/server";
 import { getDatabase } from "@/server/db/client";
-import { dispatchPending } from "./dispatcher";
+import { senderFromEnvironment } from "@/server/email/sender";
+import { deliverPendingEmails } from "@/server/modules/notifications/service";
+import { drainOutbox } from "./dispatcher";
 
 /**
  * Drain the outbox once this response has been sent.
@@ -20,7 +22,12 @@ import { dispatchPending } from "./dispatcher";
 export function dispatchSoon(): void {
   after(async () => {
     try {
-      await dispatchPending(getDatabase());
+      const database = getDatabase();
+      await drainOutbox(database);
+      // What the dispatch just decided to send leaves now, not on the next
+      // tick of a clock that may be an hour away on a small plan.
+      const baseUrl = process.env["BETTER_AUTH_URL"] ?? "http://localhost:3000";
+      await deliverPendingEmails(database, senderFromEnvironment(), baseUrl);
     } catch (error) {
       console.error("outbox dispatch failed", error);
     }

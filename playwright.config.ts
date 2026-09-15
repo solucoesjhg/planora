@@ -41,6 +41,8 @@ export default defineConfig({
       STORAGE_DRIVER: "local",
       STORAGE_DIR: ".storage/e2e",
       EMAIL_DRIVER: "mailpit",
+      // The clock's door exists only with a secret; the suite knocks with this one.
+      CRON_SECRET: "e2e-cron-secret",
       BETTER_AUTH_SECRET:
         process.env.BETTER_AUTH_SECRET ??
         "planora-e2e-secret-planora-e2e-secret-32",

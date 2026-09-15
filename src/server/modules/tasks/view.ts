@@ -62,6 +62,8 @@ export type TaskView = {
     readonly id: string;
     readonly body: string;
     readonly authorName: string;
+    /** Written by a rule: shown as the product's, never as a person's (§4.6). */
+    readonly byAutomation: boolean;
     readonly mine: boolean;
     readonly createdAt: string;
     readonly edited: boolean;
@@ -148,6 +150,7 @@ export async function loadTaskView(
     comments: document.comments.map((comment) => ({
       id: comment.id,
       body: comment.body,
+      byAutomation: comment.actorKind !== "user",
       authorName: comment.authorName,
       mine: comment.authorId === context.userId,
       createdAt: comment.createdAt.toISOString(),

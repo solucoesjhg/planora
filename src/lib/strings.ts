@@ -10,6 +10,7 @@
  * to whoever renders them.
  */
 
+import type { ActionType, ConditionField, Trigger } from "@/domain/automations";
 import type {
   DimensionName,
   ProjectSignal,
@@ -98,3 +99,66 @@ export function trendLabel(trend: Trend): string {
   const verb = trend.direction === "worsening" ? "piorando" : "melhorando";
   return `${verb} há ${trend.days} ${trend.days === 1 ? "dia" : "dias"}`;
 }
+
+/* ------------------------------------------------------------------ *
+ * Automations (§7 Phase 9) — when · if · then
+ * ------------------------------------------------------------------ */
+
+export const TRIGGER_LABELS: Record<Trigger, string> = {
+  "task.created": "uma tarefa é criada",
+  "task.moved": "uma tarefa muda de coluna",
+  "task.completed": "uma tarefa é concluída",
+  "task.blocked": "uma tarefa é travada",
+  "task.unblocked": "uma tarefa é destravada",
+  "task.assigned": "uma tarefa recebe responsáveis",
+  "comment.added": "alguém comenta numa tarefa",
+  "dependency.resolved": "uma tarefa fica livre",
+  "task.due_soon": "o prazo de uma tarefa se aproxima",
+  "task.overdue": "o prazo de uma tarefa passa",
+  "task.stalled": "uma tarefa estagna na coluna",
+  "project.health_changed": "a saúde de um projeto muda",
+};
+
+export const CONDITION_FIELD_LABELS: Record<ConditionField, string> = {
+  priority: "prioridade",
+  phase: "fase atual",
+  to_phase: "fase de destino",
+  blocked: "travada",
+  assigned: "tem responsável",
+  due_within_days: "vence em até (dias)",
+  verdict: "veredito",
+};
+
+export const ACTION_LABELS: Record<ActionType, string> = {
+  assign: "atribuir a",
+  move: "mover para a fase",
+  comment: "comentar",
+  create_subtask: "criar subtarefa",
+  set_priority: "definir prioridade",
+  notify: "avisar",
+};
+
+export const RUN_STATUS_LABELS: Record<string, string> = {
+  succeeded: "executada",
+  failed: "falhou",
+  skipped: "pulada",
+};
+
+/** The options a `<Select>` takes, in the order the interface shows them. */
+export const TRIGGER_OPTIONS = (Object.keys(TRIGGER_LABELS) as Trigger[]).map((value) => ({
+  value,
+  label: TRIGGER_LABELS[value],
+}));
+
+export const ACTION_OPTIONS = (Object.keys(ACTION_LABELS) as ActionType[]).map((value) => ({
+  value,
+  label: ACTION_LABELS[value],
+}));
+
+export const PHASE_OPTIONS = (["planning", "execution", "review", "done"] as const).map(
+  (value) => ({ value, label: PHASE_LABELS[value] }),
+);
+
+export const VERDICT_OPTIONS = (
+  ["healthy", "attention", "at_risk", "critical", "insufficient_data"] as const
+).map((value) => ({ value, label: VERDICT_LABELS[value] }));

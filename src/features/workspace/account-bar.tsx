@@ -1,4 +1,5 @@
 import { AccountMenu } from "@/app/(app)/dashboard/account-menu";
+import { InboxBell } from "@/features/notifications/inbox-bell";
 import { requireSession, requireWorkspace } from "@/server/auth/dal";
 import { getDatabase } from "@/server/db/client";
 import { membershipsOf } from "@/server/modules/workspaces/repository";
@@ -16,14 +17,17 @@ export async function AccountBar() {
   const memberships = await membershipsOf(getDatabase(), session.userId);
 
   return (
-    <AccountMenu
-      name={session.name}
-      email={session.email}
-      workspaces={memberships.map((membership) => ({
-        id: membership.workspaceId,
-        name: membership.workspaceName,
-        current: membership.workspaceId === current.workspaceId,
-      }))}
-    />
+    <div className="flex items-center gap-1">
+      <InboxBell context={current} />
+      <AccountMenu
+        name={session.name}
+        email={session.email}
+        workspaces={memberships.map((membership) => ({
+          id: membership.workspaceId,
+          name: membership.workspaceName,
+          current: membership.workspaceId === current.workspaceId,
+        }))}
+      />
+    </div>
   );
 }

@@ -50,6 +50,13 @@
       "when": 1789511800841,
       "tag": "0006_health_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789515147029,
+      "tag": "0007_automations",
+      "breakpoints": true
     }
   ]
 }

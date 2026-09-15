@@ -101,12 +101,12 @@ React Compiler support, Partial Prerendering and the new caching APIs (`cacheLif
 ```
 src/
   app/                    page.tsx (the front door) · (auth) · (app)/{dashboard,projects,board,files,users,assistant,settings,invitations} · (dev)/dev/ui · api/
-  features/               board · projects · tasks · workspace · health · dashboard · settings — client islands and the panes
+  features/               board · projects · tasks · workspace · health · dashboard · settings · automations · notifications — client islands and the panes
   components/             ui primitives, layout, feedback
   domain/                 progress · health · kanban · dependencies · phase-history · projects
   server/
     auth/                 DAL, Better Auth config, the one signing secret
-    modules/              workspaces (export, preferences) · projects · board · tasks (attachments live here) · health · dashboard · activity · files · later automations · ai
+    modules/              workspaces (export, preferences) · projects · board · tasks (attachments live here) · health · dashboard · activity · files · automations (rules, runs, routines) · notifications (inbox, email, digests) · later ai
     events/               outbox writer, dispatcher, dispatch-soon
     db/                   schema · migrations · seed
     storage/              the storage port and its three adapters: Supabase, filesystem, memory
@@ -408,7 +408,9 @@ outbox_events(id, workspace_id, type, payload jsonb, occurred_at, processed_at, 
 
 **Who drains it.** A queue nobody reads is a table that grows: sixteen events had piled up with no activity row to show for them. Every Server Action that mutates now calls `dispatchSoon()`, which runs the dispatcher through Next's `after()` — once the response is already on its way, so nobody waits for it. Phase 9's scheduler is then what it should have been from the start: the retry path for what failed, not the only path.
 
-Event types the MVP emits: `task.created`, `task.moved`, `task.blocked`, `task.unblocked`, `task.completed`, `task.assigned`, `checklist.completed`, `comment.added`, `dependency.resolved`, `project.health_changed`, `member.invited`.
+Event types the MVP emits: `task.created`, `task.moved`, `task.blocked`, `task.unblocked`, `task.completed`, `task.assigned`, `checklist.completed`, `comment.added`, `dependency.resolved`, `project.health_changed`, `member.invited` — and, from the clock, `task.due_soon`, `task.overdue` and `task.stalled`, at most one per task per day.
+
+Every event carries its provenance: `actor_kind` and `actor_id` (§4.6), and — when an automation caused it — `caused_by`, the event the rule was reacting to, and `depth`, how many rules stand between it and a person's act. The engine refuses to fire past depth 3, which is what makes a rule that triggers a rule countable rather than infinite.
 
 Two of them are derived, and the transaction that knows emits them: a move into `done` writes `task.moved` **and** `task.completed`, and then `dependency.resolved` for every task that was waiting on the one just finished and now waits on nothing. `member.invited` is written once the invitation has actually been delivered — an invitation that could not be sent leaves no row and no event. `project.health_changed` arrives with the snapshots in Phase 8.
 
@@ -869,8 +871,14 @@ The interface is pt-BR; identifiers, database values, comments and commits are E
 | Ocultar concluídos | `hide_completed` |
 | Exportar (JSON · CSV) | `export` |
 | Zona de perigo | `danger_zone` |
-| Automação · Execução | `automation` · `automation_run` |
-| Notificação · Caixa de entrada | `notification` · `inbox` |
+| Automação (regra) · Execução | `automation` · `automation_run` |
+| Quando · Se · Então (gatilho · condição · ação) | `trigger` · `condition` · `action` |
+| Ligada · Desligada | `enabled` |
+| Executada · Falhou · Pulada · Laço | `succeeded` · `failed` · `skipped` · `loop` |
+| Notificação · Caixa de entrada · Aviso | `notification` · `inbox` |
+| Resumo diário · semanal | `digest`: `daily` · `weekly` |
+| Prazo se aproxima · Prazo passou · Estagnada | `task.due_soon` · `task.overdue` · `task.stalled` |
+| Relógio · Agendador | `scheduler` |
 | Atividade | `activity_log` |
 
 **The rule:** a pt-BR label never becomes an identifier, and an English enum value never reaches the screen unmapped. When a new concept appears, it enters this table in the same pull request that introduces it.

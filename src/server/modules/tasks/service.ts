@@ -13,7 +13,7 @@ import { canAddDependency, type DependencyRefusal } from "@/domain/dependencies"
 import { keyBetween } from "@/domain/kanban";
 import type { BoardContext, CalendarDate, Priority } from "@/domain/types";
 import { ok, refused, type Result } from "@/lib/result";
-import { can, type TenantContext } from "@/server/auth/tenant";
+import { can, provenance, type TenantContext } from "@/server/auth/tenant";
 import { isBlankRichText, sanitizeRichText } from "@/server/content/html";
 import type { Database } from "@/server/db/client";
 import {
@@ -54,6 +54,8 @@ export type CreateTaskInput = {
   readonly title: string;
   readonly priority?: Priority;
   readonly dueDate?: CalendarDate | null;
+  /** A subtask is a task with a parent (§4.3); a rule's "create a subtask" sets it. */
+  readonly parentTaskId?: string | null;
 };
 
 export async function createTask(
@@ -85,6 +87,7 @@ export async function createTask(
         title,
         priority: input.priority ?? "medium",
         dueDate: input.dueDate ?? null,
+        parentTaskId: input.parentTaskId ?? null,
         position: keyBetween(last, null),
         createdBy: context.userId,
       })
@@ -103,8 +106,7 @@ export async function createTask(
         title,
       },
       dedupeKey: `task.created:${created.id}`,
-      actorKind: "user",
-      actorId: context.userId,
+      ...provenance(context),
     });
 
     return ok({ taskId: created.id, number });
@@ -175,8 +177,7 @@ export async function updateTask(
           reason: values.blockReason ?? null,
         },
         dedupeKey: `task.${input.blocked ? "blocked" : "unblocked"}:${task.id}:${now.getTime()}`,
-        actorKind: "user",
-        actorId: context.userId,
+        ...provenance(context),
       });
     }
 
@@ -243,8 +244,7 @@ export async function assignTask(
         names: userIds.map((id) => members.find((member) => member.userId === id)?.name ?? ""),
       },
       dedupeKey: `task.assigned:${task.id}:${now.getTime()}`,
-      actorKind: "user",
-      actorId: context.userId,
+      ...provenance(context),
     });
 
     return ok({ taskId: task.id });
@@ -331,8 +331,7 @@ export async function setChecklistItem(
           items: items.length,
         },
         dedupeKey: `checklist.completed:${item.taskId}:${items.length}`,
-        actorKind: "user",
-        actorId: context.userId,
+        ...provenance(context),
       });
     }
 
@@ -444,6 +443,7 @@ export async function addComment(
         workspaceId: context.workspaceId,
         taskId: task.id,
         authorId: context.userId,
+        actorKind: provenance(context).actorKind,
         body,
       })
       .returning({ id: taskComments.id });
@@ -459,8 +459,7 @@ export async function addComment(
         commentId: comment.id,
       },
       dedupeKey: `comment.added:${comment.id}`,
-      actorKind: "user",
-      actorId: context.userId,
+      ...provenance(context),
     });
 
     return ok({ commentId: comment.id });

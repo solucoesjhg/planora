@@ -19,6 +19,8 @@ export type SelectProps = {
   readonly name?: string;
   readonly disabled?: boolean;
   readonly className?: string;
+  /** An accessible name when no `<Field>` labels the trigger. */
+  readonly "aria-label"?: string;
 };
 
 export function Select({
@@ -31,6 +33,7 @@ export function Select({
   name,
   disabled,
   className,
+  "aria-label": ariaLabel,
 }: SelectProps) {
   return (
     <BaseSelect.Root
@@ -49,6 +52,7 @@ export function Select({
     >
       <BaseSelect.Trigger
         id={id}
+        {...(ariaLabel ? { "aria-label": ariaLabel } : {})}
         className={cn(
           "flex h-10 w-full items-center justify-between gap-2 rounded-control border border-line",
           "bg-input px-3 text-sm text-primary transition-colors duration-150",

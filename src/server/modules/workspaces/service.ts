@@ -9,7 +9,7 @@
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { ok, refused, type Result } from "@/lib/result";
 import { hashToken, randomToken } from "@/lib/token";
-import { can, type Role, type TenantContext } from "@/server/auth/tenant";
+import { can, provenance, type Role, type TenantContext } from "@/server/auth/tenant";
 import type { Database } from "@/server/db/client";
 import {
   users,
@@ -123,8 +123,7 @@ export async function inviteMember(
     type: "member.invited",
     payload: { invitationId: invitation.id, email, role: input.role ?? "member" },
     dedupeKey: `member.invited:${invitation.id}`,
-    actorKind: "user",
-    actorId: context.userId,
+    ...provenance(context),
   });
 
   return ok({ invitationId: invitation.id, token });
