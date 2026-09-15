@@ -9,14 +9,7 @@ import { getDatabase } from "@/server/db/client";
 import { membersOf } from "@/server/modules/workspaces/repository";
 import { pendingInvitations } from "@/server/modules/workspaces/service";
 import { AccountBar } from "@/features/workspace/account-bar";
-
-const ROLE_LABELS: Record<string, string> = {
-  owner: "dono",
-  admin: "admin",
-  manager: "gerente",
-  member: "membro",
-  viewer: "visitante",
-};
+import { ROLE_LABELS } from "@/lib/strings";
 
 /**
  * Who is in this workspace, and who has been asked to be.
@@ -75,7 +68,7 @@ export default async function UsersPage() {
                   </span>
 
                   <Badge tone={member.role === "viewer" ? "neutral" : "low"}>
-                    {ROLE_LABELS[member.role] ?? member.role}
+                    {(ROLE_LABELS[member.role] ?? member.role).toLowerCase()}
                   </Badge>
                 </li>
               ))}
@@ -101,7 +94,7 @@ export default async function UsersPage() {
                       <Clock size={12} aria-hidden />
                       expira {invitation.expiresAt.toLocaleDateString("pt-BR")}
                       <Badge tone="neutral">
-                        {ROLE_LABELS[invitation.role] ?? invitation.role}
+                        {(ROLE_LABELS[invitation.role] ?? invitation.role).toLowerCase()}
                       </Badge>
                     </span>
                   </li>

@@ -19,6 +19,7 @@ import {
 } from "@/server/db/schema";
 import type { EmailSender } from "@/server/email/sender";
 import { invitationEmail } from "@/server/email/templates";
+import { emit } from "@/server/events/outbox";
 
 const INVITATION_DAYS = 7;
 
@@ -117,7 +118,65 @@ export async function inviteMember(
     );
   }
 
+  await emit(db, {
+    workspaceId: context.workspaceId,
+    type: "member.invited",
+    payload: { invitationId: invitation.id, email, role: input.role ?? "member" },
+    dedupeKey: `member.invited:${invitation.id}`,
+    actorKind: "user",
+    actorId: context.userId,
+  });
+
   return ok({ invitationId: invitation.id, token });
+}
+
+export type InvitationPreview =
+  | {
+      readonly status: "open";
+      readonly workspaceId: string;
+      readonly workspaceName: string;
+      readonly invitedByName: string;
+      readonly role: Role;
+    }
+  | { readonly status: "expired" | "used" | "invalid" };
+
+/**
+ * What the page shows before the person decides. Reading is not accepting: a
+ * link a mail client prefetched must not join anybody to anything.
+ */
+export async function previewInvitation(
+  db: Database,
+  token: string,
+  now: Date = new Date(),
+): Promise<InvitationPreview> {
+  const tokenHash = await hashToken(token);
+
+  const [row] = await db
+    .select({
+      acceptedAt: workspaceInvitations.acceptedAt,
+      expiresAt: workspaceInvitations.expiresAt,
+      role: workspaceInvitations.role,
+      workspaceId: workspaces.id,
+      workspaceName: workspaces.name,
+      invitedByName: users.name,
+    })
+    .from(workspaceInvitations)
+    .innerJoin(workspaces, eq(workspaces.id, workspaceInvitations.workspaceId))
+    .innerJoin(users, eq(users.id, workspaceInvitations.invitedBy))
+    .where(eq(workspaceInvitations.tokenHash, tokenHash))
+    .limit(1);
+
+  if (!row) return { status: "invalid" };
+  if (row.acceptedAt) return { status: "used" };
+  if (row.expiresAt.getTime() <= now.getTime()) return { status: "expired" };
+
+  return {
+    status: "open",
+    workspaceId: row.workspaceId,
+    workspaceName: row.workspaceName,
+    invitedByName: row.invitedByName,
+    role: row.role as Role,
+  };
 }
 
 export type AcceptFailure = "invalid-token" | "expired" | "already-member";

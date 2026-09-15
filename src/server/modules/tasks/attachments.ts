@@ -49,10 +49,6 @@ export const ALLOWED_MIME_TYPES = [
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ] as const;
 
-export const IMAGE_MIME_TYPES = ALLOWED_MIME_TYPES.filter((mime) =>
-  mime.startsWith("image/"),
-);
-
 /**
  * Where an attachment lives, as far as the rest of the application is
  * concerned. Stable: it goes into a task's body and has to still work next

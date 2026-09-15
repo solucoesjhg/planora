@@ -12,13 +12,7 @@ import {
   renameColumnAction,
 } from "@/server/modules/board/actions";
 import type { BoardColumnView } from "@/server/modules/board/view";
-
-const PHASE_LABELS: Record<string, string> = {
-  planning: "planejamento",
-  execution: "execução",
-  review: "revisão",
-  done: "concluído",
-};
+import { phaseLabel } from "@/lib/strings";
 
 export type BoardColumnProps = {
   readonly column: BoardColumnView;
@@ -149,7 +143,7 @@ function ColumnMenu({
 
       <PopoverContent align="end" className="w-64">
         <form onSubmit={rename} className="flex flex-col gap-3">
-          <Field label="Nome da coluna" hint={`Fase: ${PHASE_LABELS[column.phase]}`}>
+          <Field label="Nome da coluna" hint={`Fase: ${phaseLabel(column.phase).toLowerCase()}`}>
             {(id) => (
               <Input id={id} name="name" defaultValue={column.name} maxLength={60} />
             )}

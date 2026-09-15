@@ -37,9 +37,11 @@ export default defineConfig({
       ENABLE_DEV_ROUTES: "1",
       // No third-party lookup from a test run.
       DISABLE_BREACH_CHECK: "1",
-      // A production build, but the bytes belong on this disk, not in a bucket.
+      // A production build, but the bytes belong on this disk, not in a bucket,
+      // and the mail belongs in Mailpit, not in Resend.
       STORAGE_DRIVER: "local",
       STORAGE_DIR: ".storage/e2e",
+      EMAIL_DRIVER: "mailpit",
       BETTER_AUTH_SECRET:
         process.env.BETTER_AUTH_SECRET ??
         "planora-e2e-secret-planora-e2e-secret-32",

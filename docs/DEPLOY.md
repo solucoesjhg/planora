@@ -173,7 +173,7 @@ wrong and the verification email arrives pointing at `localhost`.
 | `RESEND_API_KEY` | Resend key | required in production |
 | `EMAIL_FROM` | must match a sender Resend allows | |
 
-Deliberately **not** set: `STORAGE_DRIVER`. With Supabase configured the bucket
+Deliberately **not** set: `STORAGE_DRIVER` and `EMAIL_DRIVER`. With Supabase configured the bucket
 wins; without it, a production build refuses to write files to a disk that will
 not be there next request.
 

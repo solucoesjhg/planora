@@ -44,8 +44,3 @@ export function getStorage(env: NodeJS.ProcessEnv = process.env): Storage {
   current = localStorageAdapter(authSecret(env), bucket);
   return current;
 }
-
-/** Tests replace the store; nothing else should. */
-export function setStorage(storage: Storage | null): void {
-  current = storage;
-}

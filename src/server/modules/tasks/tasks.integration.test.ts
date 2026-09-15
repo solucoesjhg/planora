@@ -320,20 +320,30 @@ suite("the task as a document", () => {
     expect(isRefused(result) && result.reason).toBe("empty");
   });
 
-  it("lets somebody who runs the workspace delete a comment they did not write", async () => {
-    const added = await addComment(connection.db, owner(), {
+  it("lets whoever manages the project delete a comment they did not write", async () => {
+    const first = await addComment(connection.db, owner(), {
       taskId: seedIds.task(1),
       body: "<p>Anotação</p>",
     });
-    if (isRefused(added)) throw new Error(added.reason);
+    const second = await addComment(connection.db, owner(), {
+      taskId: seedIds.task(1),
+      body: "<p>Outra</p>",
+    });
+    if (isRefused(first) || isRefused(second)) throw new Error("expected two comments");
 
-    const admin = tenantContext(seedIds.workspace, seedIds.projects[1]!, "admin");
-    const member = tenantContext(seedIds.workspace, seedIds.projects[1]!, "member");
+    // Somebody else, in each role that matters (§4.2.1).
+    const somebody = seedIds.projects[1]!;
+    const member = tenantContext(seedIds.workspace, somebody, "member");
+    const manager = tenantContext(seedIds.workspace, somebody, "manager");
+    const admin = tenantContext(seedIds.workspace, somebody, "admin");
 
-    const byMember = await removeComment(connection.db, member, added.value.commentId);
+    const byMember = await removeComment(connection.db, member, first.value.commentId);
     expect(isRefused(byMember) && byMember.reason).toBe("forbidden");
 
-    const byAdmin = await removeComment(connection.db, admin, added.value.commentId);
+    const byManager = await removeComment(connection.db, manager, first.value.commentId);
+    expect(isRefused(byManager)).toBe(false);
+
+    const byAdmin = await removeComment(connection.db, admin, second.value.commentId);
     expect(isRefused(byAdmin)).toBe(false);
   });
 

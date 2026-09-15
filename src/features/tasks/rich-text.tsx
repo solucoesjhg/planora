@@ -48,6 +48,10 @@ export function RichText({
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
   const latest = useRef(value);
+  // Tiptap keeps the callbacks it was created with; state read inside them can
+  // be a render old. The ref is the truth, the state is the label.
+  const unsaved = useRef(false);
+  const saving = useRef<Promise<void> | null>(null);
 
   const editor = useEditor({
     // The server renders this page first; the editor mounts in the browser.
@@ -70,6 +74,7 @@ export function RichText({
     },
     onUpdate: ({ editor: instance }) => {
       latest.current = instance.getHTML();
+      unsaved.current = true;
       setDirty(true);
       setSaved(false);
     },
@@ -95,8 +100,24 @@ export function RichText({
   }
 
   async function save(): Promise<void> {
-    if (!dirty) return;
-    await onSave(latest.current);
+    if (!unsaved.current) return;
+    // One write at a time: a blur while a save is in flight waits for it.
+    if (saving.current) {
+      await saving.current;
+      if (!unsaved.current) return;
+    }
+
+    unsaved.current = false;
+    const write = Promise.resolve(onSave(latest.current));
+    saving.current = write;
+    try {
+      await write;
+    } catch {
+      unsaved.current = true;
+      throw new Error("save failed");
+    } finally {
+      saving.current = null;
+    }
     setDirty(false);
     setSaved(true);
   }
@@ -104,7 +125,7 @@ export function RichText({
   // The server is the source of truth: a value that changed elsewhere wins,
   // unless this editor is holding something unsaved.
   useEffect(() => {
-    if (!editor || dirty) return;
+    if (!editor || dirty || unsaved.current) return;
     if (editor.getHTML() !== value) {
       editor.commands.setContent(value, { emitUpdate: false });
       latest.current = value;

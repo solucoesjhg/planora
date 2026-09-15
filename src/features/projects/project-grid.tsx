@@ -35,7 +35,7 @@ const REFUSALS: Record<string, { title: string; description: string }> = {
   "blocked-tasks": {
     title: "Ainda há trabalho travado",
     description:
-      "Destrave as tarefas bloqueadas antes de concluir — é o que mantém o progresso confiável.",
+      "Destrave as tarefas travadas antes de concluir — é o que mantém o progresso confiável.",
   },
   forbidden: {
     title: "Sem permissão",

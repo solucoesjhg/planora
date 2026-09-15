@@ -4,7 +4,7 @@ import { MAX_KEY_LENGTH } from "@/domain/kanban";
 import { isRefused } from "@/lib/result";
 import { tenantContext } from "@/server/auth/tenant";
 import type { Connection } from "@/server/db/client";
-import { activityLogs, outboxEvents, tasks } from "@/server/db/schema";
+import { activityLogs, outboxEvents, taskDependencies, tasks } from "@/server/db/schema";
 import { seed, seedIds } from "@/server/db/seed";
 import { dispatchPending } from "@/server/events/dispatcher";
 import { connectAndMigrate, hasDatabase } from "@/server/test-support/database";
@@ -63,7 +63,7 @@ suite("moveTask against a real database", () => {
   it("leaves exactly one event when a move succeeds", async () => {
     const result = await moveTask(connection.db, owner(), {
       taskId: seedIds.task(1),
-      toColumnId: doneColumn,
+      toColumnId: reviewColumn,
     });
 
     expect(isRefused(result)).toBe(false);
@@ -73,6 +73,61 @@ suite("moveTask against a real database", () => {
     expect(events[0]?.type).toBe("task.moved");
     expect(events[0]?.actorKind).toBe("user");
     expect(events[0]?.processedAt).toBeNull();
+  });
+
+  it("says a task was completed when it enters done, beside the move", async () => {
+    const result = await moveTask(connection.db, owner(), {
+      taskId: seedIds.task(1),
+      toColumnId: doneColumn,
+    });
+    expect(isRefused(result)).toBe(false);
+
+    const events = await connection.db.select().from(outboxEvents);
+    expect(events.map((event) => event.type).sort()).toStrictEqual([
+      "task.completed",
+      "task.moved",
+    ]);
+
+    const completed = events.find((event) => event.type === "task.completed");
+    expect((completed?.payload as { taskId?: string }).taskId).toBe(seedIds.task(1));
+    expect((completed?.payload as { forced?: boolean }).forced).toBe(false);
+  });
+
+  it("releases whoever was waiting on the task it just completed", async () => {
+    // TSK-3 waits on TSK-1 alone; TSK-4 waits on TSK-1 and on TSK-2, which is
+    // still open. Finishing TSK-1 releases the first and not the second.
+    await connection.db.insert(taskDependencies).values([
+      {
+        workspaceId: seedIds.workspace,
+        taskId: seedIds.task(3),
+        dependsOnId: seedIds.task(1),
+      },
+      {
+        workspaceId: seedIds.workspace,
+        taskId: seedIds.task(4),
+        dependsOnId: seedIds.task(1),
+      },
+      {
+        workspaceId: seedIds.workspace,
+        taskId: seedIds.task(4),
+        dependsOnId: seedIds.task(2),
+      },
+    ]);
+
+    const result = await moveTask(connection.db, owner(), {
+      taskId: seedIds.task(1),
+      toColumnId: doneColumn,
+    });
+    expect(isRefused(result)).toBe(false);
+
+    const resolved = (await connection.db.select().from(outboxEvents)).filter(
+      (event) => event.type === "dependency.resolved",
+    );
+    expect(resolved).toHaveLength(1);
+    expect((resolved[0]?.payload as { taskId?: string }).taskId).toBe(seedIds.task(3));
+    expect((resolved[0]?.payload as { resolvedBy?: string }).resolvedBy).toBe(
+      seedIds.task(1),
+    );
   });
 
   it("archives the notes of the phase it leaves", async () => {
@@ -108,9 +163,15 @@ suite("moveTask against a real database", () => {
     });
     expect(isRefused(forced)).toBe(false);
 
+    // Forced into done: the move and the completion it implies, both saying so.
     const events = await connection.db.select().from(outboxEvents);
-    expect(events).toHaveLength(1);
-    expect((events[0]?.payload as { forced?: boolean }).forced).toBe(true);
+    expect(events.map((event) => event.type).sort()).toStrictEqual([
+      "task.completed",
+      "task.moved",
+    ]);
+    for (const event of events) {
+      expect((event.payload as { forced?: boolean }).forced).toBe(true);
+    }
   });
 
   it("writes one row when a card lands between two neighbours", async () => {
@@ -238,7 +299,9 @@ suite("the dispatcher", () => {
     await moveTask(
       connection.db,
       tenantContext(seedIds.workspace, seedIds.user, "owner"),
-      { taskId: seedIds.task(1), toColumnId: seedIds.column(0, 3) },
+      // Into review, not done: one event, so the count below is about the
+      // dispatcher's idempotency and nothing else.
+      { taskId: seedIds.task(1), toColumnId: seedIds.column(0, 2) },
     );
 
     const first = await dispatchPending(connection.db);

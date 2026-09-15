@@ -26,7 +26,7 @@ test.describe("the board", () => {
 
     await drag(page, blocked, page.locator('[data-column-phase="done"]'));
 
-    await expect(page.getByText("Tarefa bloqueada")).toBeVisible();
+    await expect(page.getByText("Tarefa travada")).toBeVisible();
     expect(posts, "a refused drag must not reach the server").toHaveLength(0);
     expect(await columnOf(page, "Pintura")).toBe(columnBefore);
   });
@@ -53,10 +53,14 @@ test.describe("the board", () => {
 
     // The optimistic card arrives before the write does; reloading on the
     // strength of it would only prove the board can lie for a moment.
+    // The move's own write: a Server Action posts to the page it was called
+    // from, so the board's URL, exactly — a save the modal left in flight posts
+    // to the task's URL and must not count.
+    const boardUrl = page.url();
     const written = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
-        response.url().includes("/projects/") &&
+        response.url() === boardUrl &&
         response.status() < 400,
     );
 

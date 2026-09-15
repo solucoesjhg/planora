@@ -96,7 +96,7 @@ export function ProjectCard({
 
         {project.blockedTasks > 0 ? (
           <Badge tone="blocked">
-            {project.blockedTasks} bloqueada{project.blockedTasks > 1 ? "s" : ""}
+            {project.blockedTasks} travada{project.blockedTasks > 1 ? "s" : ""}
           </Badge>
         ) : null}
 

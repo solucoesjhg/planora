@@ -74,7 +74,10 @@ export function LoginForm({ next }: { next: string }) {
 
       <p className="text-[13px] text-secondary">
         Não tem conta?{" "}
-        <Link href="/register" className="text-sienna underline-offset-4 hover:underline">
+        <Link
+          href={next === "/dashboard" ? "/register" : `/register?next=${encodeURIComponent(next)}`}
+          className="text-sienna underline-offset-4 hover:underline"
+        >
           Criar conta
         </Link>
       </p>

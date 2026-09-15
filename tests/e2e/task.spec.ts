@@ -54,6 +54,18 @@ test.describe("the task as a document", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("task-modal")).toHaveCount(0);
 
+    // The card moves optimistically before the server has written; reopening
+    // it while that revalidation is still in flight races the navigation.
+    // The move's own write: a Server Action posts to the page it was called
+    // from, so the board's URL, exactly — a save the modal left in flight posts
+    // to the task's URL and must not count.
+    const boardUrl = page.url();
+    const written = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url() === boardUrl &&
+        response.status() < 400,
+    );
     const card = page.getByTestId("task-card").filter({ hasText: "limpeza" });
     await drag(page, card, columnWithPhase(page, "execution"));
     await expect(async () => {
@@ -61,6 +73,7 @@ test.describe("the task as a document", () => {
         columnWithPhase(page, "execution").getByText("Contratar a limpeza"),
       ).toBeVisible();
     }).toPass();
+    await written;
 
     await openCard(page, "limpeza");
     const modal = page.getByTestId("task-modal");

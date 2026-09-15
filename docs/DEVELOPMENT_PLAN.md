@@ -100,22 +100,24 @@ React Compiler support, Partial Prerendering and the new caching APIs (`cacheLif
 
 ```
 src/
-  app/                    (marketing) · (auth) · (app)/{dashboard,projects,board,files,settings}
-  features/               board · task-document · project-grid · health-sidebar
+  app/                    page.tsx (the front door) · (auth) · (app)/{dashboard,projects,board,files,users,assistant,settings,invitations} · (dev)/dev/ui · api/
+  features/               board · projects · tasks · workspace — client islands
   components/             ui primitives, layout, feedback
-  domain/                 progress · health · kanban · dependencies · phase-history
+  domain/                 progress · health · kanban · dependencies · phase-history · projects
   server/
-    auth/                 DAL, Better Auth config
-    modules/              workspaces · projects · board · tasks · files · automations · ai
-    events/               outbox writer, dispatcher, handlers
+    auth/                 DAL, Better Auth config, the one signing secret
+    modules/              workspaces · projects · board · tasks (attachments live here) · later automations · ai
+    events/               outbox writer, dispatcher, dispatch-soon
     db/                   schema · migrations · seed
-    storage/              the single Supabase Storage adapter
-  fixtures/               sample data, imported by tests and by /dev routes
-  lib/                    dates, ids, formatting, Result type
+    storage/              the storage port and its three adapters: Supabase, filesystem, memory
+    content/              the HTML allowlist everything an editor writes passes through
+  fixtures/               sample data, imported by the domain tests
+  lib/                    calendar, ids, strings (the pt-BR dictionary), the Result type
   styles/                 tokens, Tailwind theme
   proxy.ts                redirects unauthenticated visitors, nothing more
-docs/                     DEVELOPMENT_PLAN.md · STATUS.md · adr/
-tests/                    e2e (Playwright); unit tests live beside their modules
+docs/                     DEVELOPMENT_PLAN.md · STATUS.md · DEPLOY.md · adr/ · design/ (the v1 kit, read-only reference)
+scripts/                  migrate.mjs, run by the pipeline before a production build
+tests/                    e2e (Playwright); unit and integration tests live beside their modules
 ```
 
 ## 3. The domain engine
@@ -346,7 +348,7 @@ Postgres on Supabase, accessed through Drizzle over a direct connection. The sch
 | **Identity** | whatever Better Auth's Drizzle adapter defines — users, sessions, accounts, verifications | **Schema in Phase 2**, wired up in Phase 3 |
 | **Tenancy** | `workspaces`, `workspace_members` (owner · admin · manager · member · viewer), `workspace_invitations` | Phase 2 · invitations in 3 |
 | **Portfolio** | `projects` (start and due dates, status, position, `client_id`), `clients`, `board_columns` (typed `phase`, position, immutability flag) | Phase 2 · clients in 5 |
-| **Work** | `tasks`, `task_assignees`, `task_checklist_items`, `task_dependencies`, `task_comments` | Phase 2 |
+| **Work** | `tasks`, `task_assignees` (schema in Phase 2, written from Phase 8), `task_checklist_items`, `task_dependencies`, `task_comments` | Phase 2 |
 | **Trail** | `task_phase_history`, `activity_logs`, `outbox_events` | Phase 2 |
 | **Health** | `project_health_snapshots` (score, verdict, five dimensions, one row per project per day) | Phase 8 |
 | **Files** | `attachments` (bucket, path, size, mime, checksum — bytes live in a private bucket) | Phase 7 |
@@ -359,13 +361,15 @@ Postgres on Supabase, accessed through Drizzle over a direct connection. The sch
 
 `role` travels in every `TenantContext`, so it needs a definition, not an adjective:
 
-| | Read | Write tasks | Manage projects | Manage columns | Invite / remove members | Delete workspace |
-|---|---|---|---|---|---|---|
-| **owner** | ● | ● | ● | ● | ● | ● |
-| **admin** | ● | ● | ● | ● | ● | — |
-| **manager** | ● | ● | ● | ● | — | — |
-| **member** | ● | ● | — | — | — | — |
-| **viewer** | ● | — | — | — | — | — |
+| | Read | Write tasks | Manage projects | Manage columns | Moderate comments | Invite / remove members | Delete workspace |
+|---|---|---|---|---|---|---|---|
+| **owner** | ● | ● | ● | ● | ● | ● | ● |
+| **admin** | ● | ● | ● | ● | ● | ● | — |
+| **manager** | ● | ● | ● | ● | ● | — | — |
+| **member** | ● | ● | — | — | — | — | — |
+| **viewer** | ● | — | — | — | — | — | — |
+
+Everybody edits and deletes their own comments. Deleting somebody else's is moderating the project it was said in, so it goes with *Manage projects*.
 
 Roles are workspace-wide in v1. Per-project grants — the scoped client access of §6.5 — need a `project_shares` table and are deliberately out of the MVP.
 
@@ -406,6 +410,8 @@ outbox_events(id, workspace_id, type, payload jsonb, occurred_at, processed_at, 
 
 Event types the MVP emits: `task.created`, `task.moved`, `task.blocked`, `task.unblocked`, `task.completed`, `checklist.completed`, `comment.added`, `dependency.resolved`, `project.health_changed`, `member.invited`.
 
+Two of them are derived, and the transaction that knows emits them: a move into `done` writes `task.moved` **and** `task.completed`, and then `dependency.resolved` for every task that was waiting on the one just finished and now waits on nothing. `member.invited` is written once the invitation has actually been delivered — an invitation that could not be sent leaves no row and no event. `project.health_changed` arrives with the snapshots in Phase 8.
+
 ### 4.6 Actor, and why automation never signs as a person
 
 `activity_logs` records an actor kind — `user`, `automation` or `ai` — beside the actor id. An action taken by a rule reads as *"Automation: due date passed"*, never as the name of whoever happened to own the workspace. Automation disguised as a person destroys trust in the record, and the record is what this product sells.
@@ -433,16 +439,16 @@ Each row is the decision in force. Several carry a fallback if the choice disapp
 
 | Layer | Choice | Why |
 |---|---|---|
-| Framework | Next 16.2 · React 19.2 · TypeScript strict | App Router with Server Components and Server Actions; Turbopack by default |
+| Framework | Next 16.3 · React 19.2 · TypeScript strict | App Router with Server Components and Server Actions; Turbopack by default |
 | Runtime | Node 20.9+ · pnpm | Framework minimum; pnpm for a strict, fast store |
 | Database | **Supabase Postgres** · Drizzle ORM | Managed Postgres with Storage in the same product; Drizzle keeps the schema in TypeScript and the migrations in reviewable SQL |
 | Access | Postgres wire protocol through Supabase's pooler, transaction mode, prepared statements off | Drizzle talks to Postgres, not to a REST layer — the Supabase JS SDK is used **only** for Storage |
 | Auth | **Better Auth** with the Drizzle adapter | Sessions in our own database, tables in `public`, no third-party SDK in the client |
 | Email | Resend in production · a local inbox in development | Account verification, password reset and invitations need real delivery in Phase 3 |
 | UI | Tailwind v4 (`@theme`) · shadcn/ui on Base UI · Lucide | Planora's tokens become theme variables; accessible primitives without rewriting them |
-| Motion | Framer Motion, sparingly | The Drop Catch bounce and little else |
-| State | `useOptimistic` + Server Actions · Zustand | The server owns the data; the client holds a pending move until the revalidation lands. Phase 6 found no need for a client cache — TanStack Query joins the moment a screen fetches on its own. Zustand only for ephemeral UI state |
-| Forms | React Hook Form · Zod v4 | One schema per action, reused as the AI's structured output in Phase 12 |
+| Motion | CSS keyframes, no library | The Drop Catch bounce is thirty lines of CSS (`pln-bounce`); an animation library joins when a screen needs choreography, not before |
+| State | `useOptimistic` + Server Actions | The server owns the data; the client holds a pending move until the revalidation lands. Phase 6 found no need for a client cache — TanStack Query joins the moment a screen fetches on its own. Ephemeral UI state is `useState`; a store joins when state has to outlive a component tree, which nothing does yet |
+| Forms | `FormData` · Zod v4 | One schema per Server Action, parsed on the server and reused as the AI's structured output in Phase 12. React Hook Form joins with the first form whose validation has to run as the person types |
 | Interaction | dnd-kit · Tiptap 3 | Kanban drag, and the task as an operational document |
 | Charts | Recharts | Carried over from the v1 dashboard; the chart set here is small and it covers it |
 | Tests | Vitest · Playwright | Unit on the domain, integration on the services, E2E on the critical flows |
@@ -573,7 +579,7 @@ The order is negotiable in most places and non-negotiable in one: **the domain c
 
 - Git from the first commit, pnpm, Next 16 with strict TypeScript and `noUncheckedIndexedAccess`
 - ESLint 9 flat config with the `domain/` boundary rule; Vitest and Playwright wired
-- Supabase CLI local stack and a versioned `.env.example`
+- Docker Compose for Postgres and the local inbox, and a versioned `.env.example` — the Supabase CLI stack was the first choice, and §5.1 says why it was not kept
 - GitHub Actions running `pnpm verify` — typecheck, lint, test, build
 - A `CLAUDE.md` under 100 lines and `docs/adr/0001-architecture.md`
 
@@ -594,7 +600,7 @@ The order is negotiable in most places and non-negotiable in one: **the domain c
 - Composite tenant foreign keys and the invariants of §4.4
 - **Outbox events written in the mutation's own transaction**, with the dispatcher and the activity-feed consumer
 
-> **Done when** an integration test proves the service refuses to move a blocked task into `done`, the seed rebuilds the identical state on every run, and one move leaves exactly one row in `outbox_events`.
+> **Done when** an integration test proves the service refuses to move a blocked task into `done`, the seed rebuilds the identical state on every run, and one move leaves exactly one `task.moved` row in `outbox_events` (a move into `done` also leaves the `task.completed` it implies — see §4.5).
 
 #### Phase 3 · Authentication, tenancy and email
 
@@ -655,6 +661,7 @@ The order is negotiable in most places and non-negotiable in one: **the domain c
 - Multi-project dashboard, progress and distribution charts, latest activity
 - The contextual right sidebar: adjusted progress, the five health dimensions, bottlenecks, Top 2
 - Daily health snapshots and the trend line — `At risk, worsening for 5 days`
+- Assignees: who a task belongs to, on the card and in the document — `task_assignees` has waited since Phase 2
 - The global files gallery grouped by project
 - Settings: theme, hide-completed, profile, workspace export to JSON/CSV, and the Danger Zone behind typed confirmation
 
@@ -823,12 +830,13 @@ Nothing in that directory is authoritative once this plan exists. Where they dis
 
 ## Appendix B — PT-BR interface glossary
 
-The interface is pt-BR; identifiers, database values, comments and commits are English. Every user-facing string lives in one module, and this table is the dictionary that keeps the two sides from drifting.
+The interface is pt-BR; identifiers, database values, comments and commits are English. Every user-facing string lives in one module — `src/lib/strings.ts` — and this table is the dictionary that keeps the two sides from drifting.
 
 | Interface (pt-BR) | Code / database |
 |---|---|
 | Espaço de trabalho | `workspace` |
 | Membro · Convite | `member` · `invitation` |
+| Dono · Admin · Gerente · Membro · Visitante | `owner` · `admin` · `manager` · `member` · `viewer` |
 | Cliente | `client` |
 | Painel | `dashboard` |
 | Projetos | `project` |
@@ -838,10 +846,10 @@ The interface is pt-BR; identifiers, database values, comments and commits are E
 | Tarefa | `task` |
 | Item de checklist | `checklist_item` |
 | Dependência | `dependency` |
-| Bloqueada | `blocked` |
+| Travada | `blocked` |
 | Atrasada · Estagnada | `late` · `stale` |
 | Prioridade: Alta · Média · Baixa | `high` · `medium` · `low` |
-| Notas internas | `internal_notes` |
+| Notas desta fase | `internal_notes` |
 | Histórico de fase | `phase_history` |
 | Progresso bruto · ajustado | `raw_progress` · `adjusted_progress` |
 | Ricochete (movimento inválido) | `drop_catch` |

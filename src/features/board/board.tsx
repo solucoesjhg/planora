@@ -40,7 +40,7 @@ type Move = {
 
 const REFUSALS: Record<MoveRefusal, { title: string; description: string }> = {
   blocked: {
-    title: "Tarefa bloqueada",
+    title: "Tarefa travada",
     description: "Destrave antes de concluir — o motivo está no cartão.",
   },
   dependencies: {

@@ -7,6 +7,7 @@
  * already showed.
  */
 
+import { unresolvedDependencies } from "@/domain/dependencies";
 import {
   canMoveTask,
   keyBetween,
@@ -16,7 +17,7 @@ import {
 } from "@/domain/kanban";
 import { ok, refused, type Result } from "@/lib/result";
 import { archiveNotes } from "@/domain/phase-history";
-import type { Phase } from "@/domain/types";
+import type { BoardContext, Phase } from "@/domain/types";
 import { columnById, taskById } from "@/domain/types";
 import { can, type TenantContext } from "@/server/auth/tenant";
 import type { Database } from "@/server/db/client";
@@ -168,6 +169,55 @@ export async function moveTask(
       actorKind: "user",
       actorId: context.userId,
     });
+
+    /**
+     * Entering `done` is an event of its own (§4.5): the health engine's
+     * Momentum and Phase 9's rules read "completed", not "moved somewhere". And
+     * whoever was waiting on this task, and now waits on nothing, is released
+     * — `dependency.resolved` is emitted for each of them here, because this is
+     * the transaction that knows.
+     */
+    if (to.phase === "done" && from.phase !== "done") {
+      await emit(tx, {
+        workspaceId: context.workspaceId,
+        type: "task.completed",
+        payload: {
+          taskId: row.id,
+          projectId: row.projectId,
+          columnId: to.id,
+          forced: input.ack === "checklist",
+        },
+        dedupeKey: `task.completed:${row.id}:${now.getTime()}`,
+        actorKind: "user",
+        actorId: context.userId,
+      });
+
+      const after: BoardContext = {
+        columns: board.columns,
+        tasks: board.tasks.map((each) =>
+          each.id === row.id ? { ...each, columnId: to.id } : each,
+        ),
+      };
+
+      for (const waiting of after.tasks) {
+        if (waiting.deletedAt !== null) continue;
+        if (!waiting.dependsOn.includes(row.id)) continue;
+        if (unresolvedDependencies(waiting, after).length > 0) continue;
+
+        await emit(tx, {
+          workspaceId: context.workspaceId,
+          type: "dependency.resolved",
+          payload: {
+            taskId: waiting.id,
+            projectId: row.projectId,
+            resolvedBy: row.id,
+          },
+          dedupeKey: `dependency.resolved:${waiting.id}:${row.id}:${now.getTime()}`,
+          actorKind: "user",
+          actorId: context.userId,
+        });
+      }
+    }
 
     return ok({ taskId: row.id, columnId: to.id, eventId });
   });

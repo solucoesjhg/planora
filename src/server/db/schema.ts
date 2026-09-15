@@ -29,9 +29,9 @@ import {
 // Relative rather than aliased: drizzle-kit loads this file on its own, without
 // the tsconfig path mapping.
 import { newId } from "../../lib/id";
+// The vocabulary is the domain's; the check constraints repeat it, not redefine it.
+import { PHASES, PRIORITIES } from "../../domain/types";
 
-export const PHASES = ["planning", "execution", "review", "done"] as const;
-export const PRIORITIES = ["high", "medium", "low"] as const;
 export const ROLES = ["owner", "admin", "manager", "member", "viewer"] as const;
 export const ACTOR_KINDS = ["user", "automation", "ai"] as const;
 export const PROJECT_STATUSES = ["active", "completed"] as const;
