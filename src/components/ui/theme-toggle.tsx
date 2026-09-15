@@ -35,10 +35,12 @@ export function ThemeToggle({ className }: { className?: string }) {
 }
 
 function toggleTheme() {
-  const root = document.documentElement;
-  const next: Theme = currentTheme() === "dark" ? "light" : "dark";
+  setTheme(currentTheme() === "dark" ? "light" : "dark");
+}
 
-  root.dataset["theme"] = next;
+/** The one place the theme is written; the settings screen calls it too. */
+export function setTheme(next: Theme): void {
+  document.documentElement.dataset["theme"] = next;
   try {
     window.localStorage.setItem(THEME_STORAGE_KEY, next);
   } catch {
@@ -46,7 +48,7 @@ function toggleTheme() {
   }
 }
 
-function currentTheme(): Theme {
+export function currentTheme(): Theme {
   const stamped = document.documentElement.dataset["theme"];
   if (stamped === "dark" || stamped === "light") return stamped;
 

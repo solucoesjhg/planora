@@ -5,11 +5,15 @@ import { ProjectGrid } from "@/features/projects/project-grid";
 import { requireWorkspace } from "@/server/auth/dal";
 import { getDatabase } from "@/server/db/client";
 import { listProjects } from "@/server/modules/projects/repository";
+import { hideCompleted } from "@/server/modules/workspaces/preferences";
 import { AccountBar } from "@/features/workspace/account-bar";
 
 export default async function ProjectsPage() {
   const workspace = await requireWorkspace();
-  const projects = await listProjects(getDatabase(), workspace);
+  const [projects, hidingCompleted] = await Promise.all([
+    listProjects(getDatabase(), workspace),
+    hideCompleted(),
+  ]);
 
   const active = projects.filter((project) => project.status === "active");
   const blocked = projects.reduce(
@@ -40,7 +44,9 @@ export default async function ProjectsPage() {
           </div>
 
           <ProjectGrid
-            projects={projects.map((project) => ({
+            projects={projects
+              .filter((project) => !hidingCompleted || project.status === "active")
+              .map((project) => ({
               id: project.id,
               name: project.name,
               description: project.description,
@@ -49,8 +55,8 @@ export default async function ProjectsPage() {
               clientName: project.clientName,
               openTasks: project.openTasks,
               totalTasks: project.totalTasks,
-              blockedTasks: project.blockedTasks,
-            }))}
+                blockedTasks: project.blockedTasks,
+              }))}
           />
         </div>
       </AppShell>
@@ -73,7 +79,7 @@ function Summary({
       <Line label="Concluídos" value={completed} />
       <Line label="Tarefas travadas" value={blocked} tone={blocked > 0 ? "warn" : undefined} />
       <p className="mt-2 text-xs text-subtle">
-        Progresso e saúde por projeto chegam na fase 8, quando o quadro existir.
+        Progresso e saúde de cada projeto estão no Painel.
       </p>
     </dl>
   );

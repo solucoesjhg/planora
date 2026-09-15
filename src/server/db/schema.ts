@@ -20,6 +20,7 @@ import {
   jsonb,
   pgTable,
   primaryKey,
+  real,
   text,
   timestamp,
   unique,
@@ -31,6 +32,7 @@ import {
 import { newId } from "../../lib/id";
 // The vocabulary is the domain's; the check constraints repeat it, not redefine it.
 import { PHASES, PRIORITIES } from "../../domain/types";
+import { VERDICTS } from "../../domain/health";
 
 export const ROLES = ["owner", "admin", "manager", "member", "viewer"] as const;
 export const ACTOR_KINDS = ["user", "automation", "ai"] as const;
@@ -542,6 +544,54 @@ export const attachments = pgTable(
       table.createdAt,
     ),
     check("attachments_status", inList("status", ATTACHMENT_STATUSES)),
+  ],
+);
+
+/* ---------------------------------------------------------------- *
+ * Health — one small row per project per day (§3.5, §4.2)
+ * ---------------------------------------------------------------- */
+
+/**
+ * What the engine said about a project on a given day: score, verdict and the
+ * five dimensions. The unique index on `(project_id, date)` is what makes
+ * writing today's row on every read idempotent, and the history is what lets
+ * the dashboard say "worsening for 5 days" instead of just "at risk".
+ */
+export const projectHealthSnapshots = pgTable(
+  "project_health_snapshots",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    /** The calendar day of the evaluation, in UTC. */
+    date: date("date", { mode: "string" }).notNull(),
+    /** Null while the verdict is `insufficient_data`. */
+    score: real("score"),
+    verdict: text("verdict").notNull(),
+    /** The band before hysteresis; the engine reads it back. */
+    rawVerdict: text("raw_verdict").notNull(),
+    flow: real("flow"),
+    pace: real("pace"),
+    punctuality: real("punctuality"),
+    freshness: real("freshness"),
+    momentum: real("momentum"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.workspaceId, table.projectId],
+      foreignColumns: [projects.workspaceId, projects.id],
+      name: "project_health_snapshots_project_fk",
+    }).onDelete("cascade"),
+    uniqueIndex("project_health_snapshots_day_key").on(table.projectId, table.date),
+    index("project_health_snapshots_workspace_project_idx").on(
+      table.workspaceId,
+      table.projectId,
+      table.date,
+    ),
+    check("project_health_snapshots_verdict", inList("verdict", VERDICTS)),
+    check("project_health_snapshots_raw_verdict", inList("raw_verdict", VERDICTS)),
   ],
 );
 

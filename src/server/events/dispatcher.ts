@@ -31,6 +31,7 @@ const SUBJECT_OF: Record<EventType, string> = {
   "task.blocked": "task",
   "task.unblocked": "task",
   "task.completed": "task",
+  "task.assigned": "task",
   "checklist.completed": "task",
   "comment.added": "task",
   "dependency.resolved": "task",

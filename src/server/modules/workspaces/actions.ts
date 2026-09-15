@@ -12,7 +12,14 @@ import { getDatabase } from "@/server/db/client";
 import { senderFromEnvironment } from "@/server/email/sender";
 import { WORKSPACE_COOKIE } from "./cookie";
 import { resolveTenantContext } from "./repository";
-import { acceptInvitation, inviteMember, type InviteFailure } from "./service";
+import { HIDE_COMPLETED_COOKIE, PREFERENCE_MAX_AGE } from "./preferences";
+import {
+  acceptInvitation,
+  deleteWorkspace,
+  inviteMember,
+  type DeleteWorkspaceFailure,
+  type InviteFailure,
+} from "./service";
 
 export type WorkspaceActionResult<Failure = string> =
   | { readonly ok: true }
@@ -106,4 +113,41 @@ export async function switchWorkspaceAction(
 
   dispatchSoon();
   return { ok: true };
+}
+
+/* ------------------------------------------------------------------ *
+ * Settings (§7 Phase 8)
+ * ------------------------------------------------------------------ */
+
+/** Whether the projects grid and the dashboard show finished projects. */
+export async function setHideCompletedAction(hide: boolean): Promise<WorkspaceActionResult> {
+  await requireSession();
+
+  const jar = await cookies();
+  jar.set(HIDE_COMPLETED_COOKIE, hide ? "1" : "0", {
+    path: "/",
+    maxAge: PREFERENCE_MAX_AGE,
+    sameSite: "lax",
+    httpOnly: true,
+  });
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/**
+ * Deletes the current workspace, after the name was typed. The cookie that
+ * pointed at it is dropped, and the dashboard repairs a personal workspace
+ * on the next request.
+ */
+export async function deleteWorkspaceAction(
+  confirmation: string,
+): Promise<WorkspaceActionResult<DeleteWorkspaceFailure>> {
+  const context = await requireWorkspace();
+
+  const result = await deleteWorkspace(getDatabase(), context, z.string().max(200).parse(confirmation));
+  if (isRefused(result)) return { ok: false, reason: result.reason };
+
+  (await cookies()).delete(WORKSPACE_COOKIE);
+  revalidatePath("/", "layout");
+  redirect("/dashboard");
 }

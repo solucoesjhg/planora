@@ -31,7 +31,7 @@ test("signing up leads to a verified account with a workspace", async ({
 
   // The workspace exists the moment the account does: the context panel says
   // which role, and the account menu says who.
-  await expect(page.getByTestId("panel").getByText("owner")).toBeVisible();
+  await expect(page.getByTestId("panel").getByText("Dono")).toBeVisible();
 
   await page.getByRole("button", { name: "Conta" }).click();
   await expect(page.getByText(email)).toBeVisible();

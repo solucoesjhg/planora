@@ -4,6 +4,7 @@ import type { Priority } from "@/domain/types";
 import { can, type TenantContext } from "@/server/auth/tenant";
 import type { Database } from "@/server/db/client";
 import { attachmentUrl } from "./attachments";
+import { membersOf } from "@/server/modules/workspaces/repository";
 import { loadTaskDocument, tasksOfProject } from "./repository";
 
 /**
@@ -66,6 +67,9 @@ export type TaskView = {
     readonly edited: boolean;
   }[];
   readonly files: readonly TaskFileView[];
+  /** Who the task belongs to, and who it could be given to. */
+  readonly assignees: readonly { readonly userId: string; readonly name: string }[];
+  readonly members: readonly { readonly userId: string; readonly name: string }[];
   readonly history: readonly {
     readonly at: string;
     readonly fromPhase: string | null;
@@ -100,7 +104,10 @@ export async function loadTaskView(
     isImage: file.mime.startsWith("image/"),
   }));
 
-  const siblings = await tasksOfProject(db, context, document.task.projectId);
+  const [siblings, members] = await Promise.all([
+    tasksOfProject(db, context, document.task.projectId),
+    membersOf(db, context),
+  ]);
 
   return {
     id: document.task.id,
@@ -115,6 +122,8 @@ export async function loadTaskView(
     dueDate: isoDay(document.task.dueDate),
     project: document.project,
     column: document.column,
+    assignees: document.assignees,
+    members: members.map((member) => ({ userId: member.userId, name: member.name })),
 
     checklist: document.checklist.map((item) => ({
       id: item.id,

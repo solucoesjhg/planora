@@ -24,6 +24,8 @@ export type ProjectSummary = {
   readonly status: "active" | "completed";
   readonly startDate: CalendarDate | null;
   readonly dueDate: CalendarDate | null;
+  /** An instant, for the health engine's age check (§3.5). */
+  readonly createdAt: Date;
   readonly position: string;
   readonly clientName: string | null;
   readonly totalTasks: number;
@@ -69,6 +71,7 @@ export async function listProjects(
       status: projects.status,
       startDate: projects.startDate,
       dueDate: projects.dueDate,
+      createdAt: projects.createdAt,
       position: projects.position,
       clientName: clients.name,
       totalTasks: sql<number>`count(distinct ${tasks.id}) filter (where ${tasks.deletedAt} is null)::int`,

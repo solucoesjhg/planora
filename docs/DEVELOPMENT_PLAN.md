@@ -101,12 +101,12 @@ React Compiler support, Partial Prerendering and the new caching APIs (`cacheLif
 ```
 src/
   app/                    page.tsx (the front door) · (auth) · (app)/{dashboard,projects,board,files,users,assistant,settings,invitations} · (dev)/dev/ui · api/
-  features/               board · projects · tasks · workspace — client islands
+  features/               board · projects · tasks · workspace · health · dashboard · settings — client islands and the panes
   components/             ui primitives, layout, feedback
   domain/                 progress · health · kanban · dependencies · phase-history · projects
   server/
     auth/                 DAL, Better Auth config, the one signing secret
-    modules/              workspaces · projects · board · tasks (attachments live here) · later automations · ai
+    modules/              workspaces (export, preferences) · projects · board · tasks (attachments live here) · health · dashboard · activity · files · later automations · ai
     events/               outbox writer, dispatcher, dispatch-soon
     db/                   schema · migrations · seed
     storage/              the storage port and its three adapters: Supabase, filesystem, memory
@@ -408,7 +408,7 @@ outbox_events(id, workspace_id, type, payload jsonb, occurred_at, processed_at, 
 
 **Who drains it.** A queue nobody reads is a table that grows: sixteen events had piled up with no activity row to show for them. Every Server Action that mutates now calls `dispatchSoon()`, which runs the dispatcher through Next's `after()` — once the response is already on its way, so nobody waits for it. Phase 9's scheduler is then what it should have been from the start: the retry path for what failed, not the only path.
 
-Event types the MVP emits: `task.created`, `task.moved`, `task.blocked`, `task.unblocked`, `task.completed`, `checklist.completed`, `comment.added`, `dependency.resolved`, `project.health_changed`, `member.invited`.
+Event types the MVP emits: `task.created`, `task.moved`, `task.blocked`, `task.unblocked`, `task.completed`, `task.assigned`, `checklist.completed`, `comment.added`, `dependency.resolved`, `project.health_changed`, `member.invited`.
 
 Two of them are derived, and the transaction that knows emits them: a move into `done` writes `task.moved` **and** `task.completed`, and then `dependency.resolved` for every task that was waiting on the one just finished and now waits on nothing. `member.invited` is written once the invitation has actually been delivered — an invitation that could not be sent leaves no row and no event. `project.health_changed` arrives with the snapshots in Phase 8.
 
@@ -860,8 +860,15 @@ The interface is pt-BR; identifiers, database values, comments and commits are E
 | Evento · Fila de eventos | `event` · `outbox` |
 | Saudável · Atenção · Em risco · Crítico | `healthy` · `attention` · `at_risk` · `critical` |
 | Sem dados suficientes | `insufficient_data` |
-| Gargalos | `bottlenecks` |
-| Anexos | `attachment` |
+| Gargalos · Top 2 | `bottlenecks` · `top_two` |
+| Tendência: piorando · melhorando · estável | `trend`: `worsening` · `improving` · `steady` |
+| Distribuição | `distribution` |
+| Responsáveis | `task_assignees` |
+| Anexos · Arquivos (galeria) | `attachment` · `files` |
+| Configurações · Perfil · Tema | `settings` · `profile` · `theme` |
+| Ocultar concluídos | `hide_completed` |
+| Exportar (JSON · CSV) | `export` |
+| Zona de perigo | `danger_zone` |
 | Automação · Execução | `automation` · `automation_run` |
 | Notificação · Caixa de entrada | `notification` · `inbox` |
 | Atividade | `activity_log` |

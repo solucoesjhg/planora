@@ -18,6 +18,7 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/cn";
 import {
   addChecklistItemAction,
+  setAssigneesAction,
   addCommentAction,
   addDependencyAction,
   removeChecklistItemAction,
@@ -28,6 +29,7 @@ import {
 } from "@/server/modules/tasks/actions";
 import type { TaskView } from "@/server/modules/tasks/view";
 import { RichText } from "./rich-text";
+import { AssigneePicker } from "./assignee-picker";
 import { TaskFiles, useImageUpload } from "./task-files";
 import { PRIORITY_OPTIONS, phaseLabel } from "@/lib/strings";
 
@@ -253,6 +255,22 @@ export function TaskDocument({ task }: { task: TaskView }) {
       </div>
 
       <aside className="flex flex-col gap-5 text-[13px]">
+        <Field label="Responsáveis">
+          {(id) => (
+            <AssigneePicker
+              id={id}
+              assignees={task.assignees}
+              members={task.members}
+              disabled={!task.canWrite}
+              onChange={(userIds) =>
+                run(() => setAssigneesAction({ ...scope, userIds }), {
+                  "not-a-member": "Essa pessoa não está neste espaço.",
+                })
+              }
+            />
+          )}
+        </Field>
+
         <Field label="Prioridade">
           {(id) => (
             <Select

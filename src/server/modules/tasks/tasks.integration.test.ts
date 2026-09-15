@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { isRefused } from "@/lib/result";
 import { tenantContext } from "@/server/auth/tenant";
 import type { Connection } from "@/server/db/client";
-import { outboxEvents, taskComments, tasks } from "@/server/db/schema";
+import { outboxEvents, taskAssignees, taskComments, tasks } from "@/server/db/schema";
 import { seed, seedIds } from "@/server/db/seed";
 import { connect, connectAndMigrate, hasDatabase } from "@/server/test-support/database";
 import { loadTaskDocument, nextTaskNumber } from "./repository";
@@ -11,6 +11,7 @@ import {
   addChecklistItem,
   addComment,
   addDependency,
+  assignTask,
   createTask,
   editComment,
   removeComment,
@@ -41,6 +42,60 @@ suite("the task as a document", () => {
 
   beforeEach(async () => {
     await seed(connection.db);
+  });
+
+  /**
+   * Assignees (§7 Phase 8): `task_assignees` has waited since Phase 2. The
+   * whole set is written at once, anyone named has to be in the workspace, and
+   * the event carries the names so the feed can say who.
+   */
+  it("gives a task to people in the workspace, and takes it back", async () => {
+    const taskId = seedIds.task(1);
+
+    const given = await assignTask(connection.db, owner(), {
+      taskId,
+      userIds: [seedIds.user, seedIds.user],
+    });
+    expect(isRefused(given)).toBe(false);
+
+    const document = await loadTaskDocument(connection.db, owner(), taskId);
+    expect(document?.assignees).toEqual([{ userId: seedIds.user, name: "Henrique" }]);
+
+    const [event] = await connection.db
+      .select()
+      .from(outboxEvents)
+      .where(and(eq(outboxEvents.workspaceId, seedIds.workspace), eq(outboxEvents.type, "task.assigned")));
+    expect(event?.payload).toMatchObject({
+      taskId,
+      projectId,
+      userIds: [seedIds.user],
+      names: ["Henrique"],
+    });
+
+    const taken = await assignTask(connection.db, owner(), { taskId, userIds: [] });
+    expect(isRefused(taken)).toBe(false);
+    expect(
+      await connection.db.select().from(taskAssignees).where(eq(taskAssignees.taskId, taskId)),
+    ).toHaveLength(0);
+  });
+
+  it("refuses somebody who is not in the workspace, and a viewer who may not write", async () => {
+    const taskId = seedIds.task(1);
+
+    const stranger = await assignTask(connection.db, owner(), {
+      taskId,
+      userIds: ["0192b1f0-0000-7000-8000-000000000999"],
+    });
+    expect(isRefused(stranger) && stranger.reason).toBe("not-a-member");
+    expect(
+      await connection.db.select().from(taskAssignees).where(eq(taskAssignees.taskId, taskId)),
+    ).toHaveLength(0);
+
+    const byViewer = await assignTask(connection.db, viewer(), {
+      taskId,
+      userIds: [seedIds.user],
+    });
+    expect(isRefused(byViewer) && byViewer.reason).toBe("forbidden");
   });
 
   it("creates a task with the project's next number, at the end of its column", async () => {

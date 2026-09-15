@@ -16,6 +16,7 @@ import {
   projectHealth,
   smoothVerdict,
   taskWeight,
+  trendOf,
 } from "./health";
 import type { Task } from "./types";
 
@@ -291,5 +292,67 @@ describe("hysteresis", () => {
 
   it("adopts the band directly on a first evaluation", () => {
     expect(smoothVerdict(bandOf(72), 72, null)).toBe("attention");
+  });
+});
+
+describe("the trend reads the run of evaluations", () => {
+  const day = (offset: number) => dayAfter(offset);
+
+  it("counts the calendar days a score has kept falling", () => {
+    const history = [80, 78, 75, 71, 66, 60].map((score, index) => ({
+      date: day(index),
+      score,
+    }));
+    expect(trendOf(history)).toEqual({ direction: "worsening", days: 5 });
+  });
+
+  it("counts only the latest run, not the whole history", () => {
+    const history = [50, 60, 70, 65, 62].map((score, index) => ({
+      date: day(index),
+      score,
+    }));
+    expect(trendOf(history)).toEqual({ direction: "worsening", days: 2 });
+
+    const recovering = [70, 60, 50, 55, 61, 70].map((score, index) => ({
+      date: day(index),
+      score,
+    }));
+    expect(trendOf(recovering)).toEqual({ direction: "improving", days: 3 });
+  });
+
+  it("measures a run across days nobody read the project", () => {
+    // Read on day 0, then not until day 4: lower, and nothing in between
+    // showed it rising.
+    const history = [
+      { date: day(0), score: 80 },
+      { date: day(4), score: 70 },
+      { date: day(5), score: 65 },
+    ];
+    expect(trendOf(history)).toEqual({ direction: "worsening", days: 5 });
+  });
+
+  it("is steady when the score held, when a day had no score, or with one point", () => {
+    expect(trendOf([{ date: day(0), score: 70 }, { date: day(1), score: 70 }])).toEqual({
+      direction: "steady",
+      days: 0,
+    });
+    expect(
+      trendOf([
+        { date: day(0), score: 70 },
+        { date: day(1), score: null },
+        { date: day(2), score: 60 },
+      ]),
+    ).toEqual({ direction: "steady", days: 0 });
+    expect(trendOf([{ date: day(0), score: 70 }])).toEqual({ direction: "steady", days: 0 });
+    expect(trendOf([])).toEqual({ direction: "steady", days: 0 });
+  });
+
+  it("does not care what order the history arrives in", () => {
+    const history = [
+      { date: day(2), score: 60 },
+      { date: day(0), score: 80 },
+      { date: day(1), score: 70 },
+    ];
+    expect(trendOf(history)).toEqual({ direction: "worsening", days: 2 });
   });
 });

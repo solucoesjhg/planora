@@ -20,6 +20,7 @@ export const EVENT_TYPES = [
   "task.blocked",
   "task.unblocked",
   "task.completed",
+  "task.assigned",
   "checklist.completed",
   "comment.added",
   "dependency.resolved",

@@ -1,16 +1,25 @@
 import postgres from "postgres";
 
 /**
+ * The database the suite runs against when nothing says otherwise — the same
+ * one the production server under test is pointed at (playwright.config.ts),
+ * so an assertion that reads the database reads the one the screen wrote to.
+ */
+export const DEFAULT_DATABASE_URL =
+  "postgresql://postgres:postgres@127.0.0.1:54322/planora_dev";
+
+export function databaseUrl(): string {
+  return process.env["DATABASE_URL"] ?? DEFAULT_DATABASE_URL;
+}
+
+/**
  * A read straight into the database, for the few assertions that are about
  * something the interface does not show.
  */
 export async function query<T>(
   run: (sql: postgres.Sql) => Promise<T>,
 ): Promise<T> {
-  const url = process.env["DATABASE_URL"];
-  if (!url) throw new Error("DATABASE_URL is required for this assertion");
-
-  const sql = postgres(url, { prepare: false, max: 1, onnotice: () => {} });
+  const sql = postgres(databaseUrl(), { prepare: false, max: 1, onnotice: () => {} });
   try {
     return await run(sql);
   } finally {

@@ -1,6 +1,6 @@
 # Status
 
-**Phases 0 to 7 are merged**, with the repairs of two reviews — the
+**Phases 0 to 8 are merged**, with the repairs of two reviews — the
 phase-by-phase one (#9) and the consistency one (#11). **Production is live at
 https://planora-rosy.vercel.app** (Vercel `gru1`, Supabase São Paulo, Resend);
 the Phase 3 criterion — the same flow on the deployed URL — is met.
@@ -65,11 +65,33 @@ expires and come back through one signed only after the workspace check;
 `server/storage/` is a port with three adapters. Cards are created at the foot
 of their column.
 
+**Phase 8 — dashboard, health surfaces and files.** Reading a project
+evaluates it: `server/modules/health` asks the engine with the previous day's
+row and the week's events, writes today's row in `project_health_snapshots`
+(one per project per day, migration `0006`), and emits
+`project.health_changed` when — only when — the verdict moves. The board's
+right pane shows the verdict, its trend ("piorando há 5 dias", from
+`trendOf` in `domain/health`), adjusted progress, the dimensions the engine
+could compute — four when the project has no dates — the Top 2 and the rest of
+the bottlenecks. The dashboard reads every active project the same way: one
+row per project with adjusted and raw progress, verdict and heaviest reason;
+the distribution of live tasks by phase; the newest `activity_logs` entries as
+sentences (`lib/activity.ts`); and a right pane with the portfolio by verdict
+and the projects needing attention first. Assignees are written at last:
+`task_assignees`, a picker in the document, faces on the card, and the
+`task.assigned` event. The files gallery groups every stored attachment by
+project. Settings: theme by name, the hide-completed preference (a cookie,
+like the chosen workspace), the profile's name, the export as JSON or CSV
+(`/api/export`, one CSV row per task), and the Danger Zone — a project or the
+workspace, deleted behind its name typed out, checked on the server too.
+
 ## Next
 
-- Phase 8 — dashboard, health surfaces and files: the multi-project dashboard,
-  the contextual sidebar with the five dimensions, daily health snapshots and
-  the trend line, the global file gallery, and settings.
+- Phase 9 — automations, notifications and scheduling, where the MVP ends: the
+  queue and job state in Postgres with a clock from outside, the in-app inbox
+  and email per event type, the workspace rule engine, the time-based routines,
+  idempotent runs and a run log. `task.assigned` and `project.health_changed`
+  are already in the stream for it to consume.
 
 ## Open decisions
 
@@ -247,6 +269,37 @@ São Paulo, Resend with the test sender. Henrique ran the checks in
   them; a sweep belongs with the file gallery in Phase 8.
 
 ## Decisions taken since the plan
+
+- **Health is evaluated on read, and the previous evaluation is yesterday's
+  row.** Until Phase 9's clock exists, opening a board or the dashboard is
+  what writes today's snapshot; the unique index on `(project_id, date)` makes
+  the second read of the day a rewrite, not a second evaluation. Hysteresis
+  therefore defends the last row *before today* — reading a project twice in
+  one day is not two consecutive evaluations, and cannot flip its verdict.
+- **Momentum reads the outbox, not the feed.** The activity feed is written a
+  moment after the event by the dispatcher; the events themselves are written
+  in the mutation's transaction. A move counts as movement the instant it was
+  made.
+- **`task.assigned` joined the event catalogue** (§4.5). It carries the names
+  as well as the ids, so the feed says who without a lookup that would answer
+  differently after somebody renamed — and Phase 9's "notify the assignee"
+  has something to fire on.
+- **The hide-completed preference is a cookie**, like the chosen workspace: a
+  convenience of this browser, never a permission, and nothing the server
+  would not show anyway. A per-account preference table can absorb it when a
+  second preference appears.
+- **The dictionary won over the first draft of the labels.** Appendix B had
+  named `momentum` "Impulso", `stale` "Estagnada" and `insufficient_data` "Sem
+  dados suficientes" before any screen showed them; the screen follows.
+- **The E2E global setup migrates its own database.** The suite's server
+  points at `planora_dev`; the integration harness migrates whatever
+  `DATABASE_URL` names. Phase 8 added a table, 86 integration tests passed,
+  and twenty E2E tests fell into the error boundary at once because nothing
+  had migrated the E2E database. Now the setup does, before the first request.
+- **A dimension's colour asks the domain which band it is in.** The bars in
+  the health pane use `bandOf()` rather than thresholds of their own — the
+  Phase 8 criterion is that no component calculates, and a colour threshold is
+  a calculation.
 
 - **A calendar day is not an instant.** `CalendarDate` is a `YYYY-MM-DD`
   string, from the column to the screen; nothing converts one to a `Date`.
