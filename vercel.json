@@ -4,7 +4,7 @@
   "regions": [
     "gru1"
   ],
-  "ignoreCommand": "[ \"$VERCEL_ENV\" != \"production\" ]",
+  "ignoreCommand": "[ -n \"$VERCEL_ENV\" ] && [ \"$VERCEL_ENV\" != \"production\" ]",
   "headers": [
     {
       "source": "/(.*)",

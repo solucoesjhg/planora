@@ -237,6 +237,15 @@ every page with `DATABASE_URL is not set`. The same switch exists in the
 dashboard under *Settings → Build and Deployment → Ignored Build Step*, but the
 repository is where it belongs.
 
+The command reads `VERCEL_ENV`, which Vercel hands to the ignore step only
+while *Settings → Environment Variables → Automatically expose System
+Environment Variables* is on (it is, by default). The command is written to
+fail safe: with the variable absent it **builds** — the state before the
+switch existed — rather than skipping every deployment, production included.
+If a merge to `main` produces no deployment at all, look under *Deployments*
+for one marked *Canceled* with "Ignored Build Step" as the reason, and check
+that setting.
+
 ---
 
 ## After the first deploy
