@@ -51,7 +51,12 @@ policy. Turning it off again takes effect on the next request, no redeploy.
 Left sidebar → **Settings** (bottom) → **API Keys**.
 
 - **Project URL** — under *Settings → API*, looks like
-  `https://abcdefgh.supabase.co`. That is `SUPABASE_URL`.
+  `https://abcdefgh.supabase.co`. That is `SUPABASE_URL` — **and only that**.
+  The same pages show `https://abcdefgh.supabase.co/rest/v1` (the Data API)
+  and `…/storage/v1`; neither goes in the variable. The SDK appends
+  `/storage/v1` itself, and with `/rest/v1` in front every storage request
+  reaches the Data API, which answers `Invalid path specified in request URL`.
+  The application refuses such a URL by name.
 - **The secret key** — Supabase is midway through renaming these. You may see:
   - a **Secret key** starting `sb_secret_…` (the current system), or
   - a legacy **`service_role`** key, a long JWT starting `eyJ…`.
@@ -247,8 +252,10 @@ Check these in order — each one has already been the cause of a failure here:
      the server, before the browser sent a byte. The runtime log has the cause
      on a line starting `[attachments] the store failed to`: `Bucket not found`
      is a bucket whose name does not match `SUPABASE_STORAGE_BUCKET` (1.2);
-     `Invalid API key` is `SUPABASE_SERVICE_ROLE_KEY` holding something that is
-     not a key of this project at all — cut short when pasted, copied from
+     `Invalid path specified in request URL` is `SUPABASE_URL` with `/rest/v1`
+     (or another path) after the host — see 1.3; `Invalid API key` is
+     `SUPABASE_SERVICE_ROLE_KEY` holding something that is not a key of this
+     project at all — cut short when pasted, copied from
      another project, or the *JWT secret* or the project ref copied instead of
      the secret key (1.3); a message about row-level security is the
      *publishable* / `anon` key where the secret one should be. Variables only

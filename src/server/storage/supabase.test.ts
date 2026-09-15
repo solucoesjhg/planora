@@ -10,11 +10,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const service = vi.hoisted(() => ({
   public: false,
   describedTimes: 0,
+  urls: [] as string[],
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@supabase/supabase-js", () => ({
-  createClient: () => ({
+  createClient: (url: string) => ({
+    ...(service.urls.push(url) && {}),
     storage: {
       getBucket: async (name: string) => {
         service.describedTimes += 1;
@@ -38,12 +40,42 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }));
 
-import { supabaseStorageAdapter } from "./supabase";
+import { projectOrigin, supabaseStorageAdapter } from "./supabase";
 
 describe("supabaseStorageAdapter", () => {
   beforeEach(() => {
     service.public = false;
     service.describedTimes = 0;
+    service.urls = [];
+  });
+
+  /**
+   * What the first deploy had in `SUPABASE_URL`: the Data API URL, which the
+   * dashboard shows beside the project URL. Every storage request then reached
+   * PostgREST, and the log said "Invalid path specified in request URL".
+   */
+  it("refuses a project URL that carries a path, naming the variable", async () => {
+    const storage = supabaseStorageAdapter("https://x.supabase.co/rest/v1", "k");
+
+    await expect(storage.upload("ws/p/a/planta.pdf", "application/pdf")).rejects.toThrow(
+      /SUPABASE_URL must be the project URL alone — https:\/\/x\.supabase\.co/,
+    );
+    await expect(storage.upload("ws/p/a/planta.pdf", "application/pdf")).rejects.toThrow(
+      /Invalid path specified in request URL/,
+    );
+    // The SDK was never even built.
+    expect(service.urls).toEqual([]);
+  });
+
+  it("accepts the project URL with or without a trailing slash, and hands the SDK the origin", async () => {
+    expect(projectOrigin("https://x.supabase.co/")).toBe("https://x.supabase.co");
+    expect(projectOrigin("https://x.supabase.co")).toBe("https://x.supabase.co");
+    expect(() => projectOrigin("x.supabase.co")).toThrow(/not a URL/);
+    expect(() => projectOrigin("https://x.supabase.co/storage/v1")).toThrow(/wrong service/);
+
+    const storage = supabaseStorageAdapter("https://x.supabase.co/", "k");
+    await storage.upload("ws/p/a/planta.pdf", "application/pdf");
+    expect(service.urls).toEqual(["https://x.supabase.co"]);
   });
 
   it("refuses a ticket and a link while the bucket is public", async () => {

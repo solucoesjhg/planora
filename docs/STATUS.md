@@ -70,9 +70,9 @@ of their column.
 - **Finish the post-deploy checks** (`docs/DEPLOY.md`, "After the first
   deploy"). Passed: the verification email, "hoje", the activity feed. Attaching
   a file did not — `Invalid API key`, see "What the first deploy showed" — and
-  is to be tried again once `SUPABASE_SERVICE_ROLE_KEY` is replaced and
-  `deploy-production-findings` is deployed. Still untried: the sixth sign-up in
-  a minute being refused.
+  is to be tried again once `SUPABASE_URL` is the bare project URL. The rate
+  limiter passed from outside, without creating accounts: ten sign-ins with
+  a wrong password answered 401, the eleventh 429 with `retry-after: 60`.
 - Phase 8 — dashboard, health surfaces and files: the multi-project dashboard,
   the contextual sidebar with the five dimensions, daily health snapshots and
   the trend line, the global file gallery, and settings.
@@ -221,9 +221,12 @@ São Paulo, Resend with the test sender. Henrique ran the checks in
   removing a file reports its refusal too. `/api/attachments/<id>` answers 503
   rather than 404 when the store is the problem. Regression: three integration
   tests with a store that throws, one E2E that drops the upload at the network.
-  The cause on the deployment, read from the runtime log: `Invalid API key` —
-  `SUPABASE_SERVICE_ROLE_KEY` did not hold a key of the project. The screen
-  now says that itself.
+  The causes on the deployment, read from the runtime log, one after the
+  other: `Invalid API key` — `SUPABASE_SERVICE_ROLE_KEY` did not hold a key of
+  the project — and then `Invalid path specified in request URL`, which is
+  PostgREST's PGRST125: `SUPABASE_URL` carried `/rest/v1`, so every storage
+  request reached the Data API. The adapter now refuses a project URL with a
+  path, naming the variable and the fix; the screen shows the store's words.
 - **The private bucket is now checked, not assumed.** Chasing the upload,
   the bucket's *Public* switch got flipped. It is the property every signed
   URL rests on and it lives in a dashboard checkbox, so the Supabase adapter
