@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join, normalize, sep } from "node:path";
+import { dirname, join, normalize, resolve as absolute, sep } from "node:path";
 import { signPath, verifyPath, type SignedIntent } from "./signing";
 import type { Storage, StoredMetadata, UploadTicket } from "./storage";
 
@@ -12,7 +12,14 @@ import type { Storage, StoredMetadata, UploadTicket } from "./storage";
  * shape the rest of the code sees is the one Supabase Storage gives it.
  */
 
-const ROOT = process.env["STORAGE_DIR"] ?? join(process.cwd(), ".storage");
+/**
+ * Absolute, whatever the environment said: `STORAGE_DIR=.storage/e2e` is a
+ * relative path with forward slashes, and the guard in `resolve()` compares
+ * prefixes of what `join` produces — on Windows, backslashes. A relative root
+ * failed that comparison for every path, and every upload was refused as an
+ * attempt to escape the directory.
+ */
+const ROOT = absolute(process.env["STORAGE_DIR"] ?? join(process.cwd(), ".storage"));
 
 /**
  * Every call below reads a path built at runtime, which makes the bundler trace

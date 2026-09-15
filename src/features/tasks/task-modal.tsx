@@ -20,7 +20,16 @@ export function TaskModal({ task }: { task: TaskView }) {
 
   function close(next: boolean): void {
     setOpen(next);
-    if (!next) router.back();
+    if (next) return;
+
+    // An editor still holding focus saves on blur. Blur it here, while this is
+    // still the current URL, so the write is posted to the page it belongs
+    // to — a Server Action fired after the router has moved on posts to a URL
+    // that is no longer current, and the next navigation there is dropped.
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    router.back();
   }
 
   return (

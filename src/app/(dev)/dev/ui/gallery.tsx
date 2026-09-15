@@ -19,6 +19,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select } from "@/components/ui/select";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { ToastProvider, useToast } from "@/components/ui/toast";
+import { PRIORITY_OPTIONS } from "@/lib/strings";
 
 const VARIANTS: ButtonVariant[] = ["primary", "secondary", "ghost", "danger"];
 const TONES: BadgeTone[] = [
@@ -105,11 +106,7 @@ export function UiGallery() {
                   <Select
                     id={id}
                     defaultValue="medium"
-                    items={[
-                      { value: "high", label: "Alta" },
-                      { value: "medium", label: "Média" },
-                      { value: "low", label: "Baixa" },
-                    ]}
+                    items={PRIORITY_OPTIONS}
                   />
                 )}
               </Field>
@@ -198,7 +195,7 @@ function ToastButton() {
       onClick={() =>
         toast.add({
           title: "Movimento recusado",
-          description: "TSK-14 está bloqueada por uma dependência aberta.",
+          description: "TSK-14 está travada por uma dependência aberta.",
         })
       }
     >

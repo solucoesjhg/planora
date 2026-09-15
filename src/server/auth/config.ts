@@ -211,9 +211,17 @@ export function getAuth(): Auth {
  * published in this file.
  */
 /** Replaces the callback the framework put in the verification link. */
-function withCallback(url: string, callback: string): string {
+/**
+ * Better Auth defaults the callback to "/", the marketing page. Sign-up may
+ * have asked for somewhere specific — the invitation the person was following
+ * — and that wins; the dashboard is where everybody else lands.
+ */
+function withCallback(url: string, fallback: string): string {
   const parsed = new URL(url);
-  parsed.searchParams.set("callbackURL", callback);
+  const asked = parsed.searchParams.get("callbackURL");
+  if (!asked || asked === "/" || !asked.startsWith("/")) {
+    parsed.searchParams.set("callbackURL", fallback);
+  }
   return parsed.toString();
 }
 

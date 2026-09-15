@@ -39,9 +39,9 @@ src/server/auth/  the DAL: requireSession(), requireWorkspace() — server-only
 src/server/modules/<module>/   actions → services → repositories
 src/server/events/             outbox writer and dispatcher
 src/server/db/                 Drizzle schema, migrations, seed
-src/server/storage/            the single Supabase Storage adapter
+src/server/storage/            the storage port: Supabase in production, the filesystem in development, memory in tests
 src/fixtures/     sample data for tests and /dev routes — never inside a component
-src/lib/          shared utilities and the Result type; never a business rule
+src/lib/          shared utilities, the Result type and strings.ts (every pt-BR label); never a business rule
 tests/e2e/        Playwright; unit tests sit beside their modules as *.test.ts
 ```
 
@@ -74,7 +74,8 @@ One phase, one branch, one pull request. No phase begins with a red test.
 ## Conventions
 
 - Code, schema, comments and commits in **English**; interface strings in
-  **pt-BR** (plan, Appendix B). A pt-BR label never becomes an identifier.
+  **pt-BR** (plan, Appendix B), mapped from enum values in `src/lib/strings.ts`.
+  A pt-BR label never becomes an identifier.
 - Commands: `pnpm dev`, `pnpm verify`, `pnpm test:watch`, `pnpm e2e`.
 - Services: `docker compose up -d` starts Postgres (54322) and the local inbox
   Mailpit (http://localhost:8025). Then `pnpm test:db` with `DATABASE_URL`

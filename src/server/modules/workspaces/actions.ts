@@ -5,13 +5,14 @@ import { dispatchSoon } from "@/server/events/dispatch-soon";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { isRefused } from "@/lib/result";
+import { redirect } from "next/navigation";
 import { requireSession, requireWorkspace } from "@/server/auth/dal";
 import { ROLES } from "@/server/db/schema";
 import { getDatabase } from "@/server/db/client";
 import { senderFromEnvironment } from "@/server/email/sender";
 import { WORKSPACE_COOKIE } from "./cookie";
 import { resolveTenantContext } from "./repository";
-import { inviteMember, type InviteFailure } from "./service";
+import { acceptInvitation, inviteMember, type InviteFailure } from "./service";
 
 export type WorkspaceActionResult<Failure = string> =
   | { readonly ok: true }
@@ -47,6 +48,41 @@ export async function inviteMemberAction(
 }
 
 /**
+ * Joining a workspace from its invitation. The page only shows the invitation;
+ * this is the click that accepts it — and the workspace joined becomes the
+ * one the browser looks at, rather than whichever membership sorts first.
+ */
+export async function acceptInvitationAction(token: string): Promise<void> {
+  const session = await requireSession();
+  const parsedToken = z.string().min(1).max(200).parse(token);
+
+  const result = await acceptInvitation(getDatabase(), {
+    token: parsedToken,
+    userId: session.userId,
+  });
+
+  if (isRefused(result)) {
+    redirect(`/invitations/${encodeURIComponent(parsedToken)}?refused=${result.reason}`);
+  }
+
+  await rememberWorkspace(result.value.workspaceId);
+  revalidatePath("/", "layout");
+  dispatchSoon();
+  redirect("/dashboard");
+}
+
+async function rememberWorkspace(workspaceId: string): Promise<void> {
+  const jar = await cookies();
+  jar.set(WORKSPACE_COOKIE, workspaceId, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365,
+  });
+}
+
+/**
  * Which workspace this browser is looking at.
  *
  * Membership is checked here, before the cookie is written, so the cookie is
@@ -65,15 +101,7 @@ export async function switchWorkspaceAction(
 
   if (!context) return { ok: false, reason: "not-found" };
 
-  const jar = await cookies();
-  jar.set(WORKSPACE_COOKIE, context.workspaceId, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 365,
-  });
-
+  await rememberWorkspace(context.workspaceId);
   revalidatePath("/", "layout");
 
   dispatchSoon();

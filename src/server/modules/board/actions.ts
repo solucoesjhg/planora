@@ -14,17 +14,11 @@ import {
   type ColumnFailure,
 } from "./columns";
 import { moveTask, type MoveTaskFailure } from "./service";
+import { phaseLabel } from "@/lib/strings";
 
 export type BoardActionResult<Failure> =
   | { readonly ok: true }
   | { readonly ok: false; readonly reason: Failure; readonly detail?: string };
-
-const PHASE_LABELS: Record<string, string> = {
-  planning: "Planejamento",
-  execution: "Execução",
-  review: "Revisão",
-  done: "Concluído",
-};
 
 const moveSchema = z.object({
   projectId: z.uuid(),
@@ -47,7 +41,7 @@ export async function moveTaskAction(
     afterTaskId: parsed.afterTaskId ?? null,
     beforeTaskId: parsed.beforeTaskId ?? null,
     // The archived note is titled in the language of the interface.
-    phaseLabel: (phase) => PHASE_LABELS[phase] ?? phase,
+    phaseLabel,
     ...(parsed.ack ? { ack: parsed.ack } : {}),
   });
 

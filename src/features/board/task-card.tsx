@@ -9,6 +9,7 @@ import { deadlineStatus } from "@/domain/projects";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
 import type { BoardTaskView } from "@/server/modules/board/view";
+import { priorityLabel } from "@/lib/strings";
 
 export type TaskCardProps = {
   readonly task: BoardTaskView;
@@ -73,11 +74,7 @@ export const TaskCardView = forwardRef<
                 : "medium"
           }
         >
-          {task.priority === "high"
-            ? "alta"
-            : task.priority === "low"
-              ? "baixa"
-              : "média"}
+          {priorityLabel(task.priority).toLowerCase()}
         </Badge>
       </header>
 
@@ -112,7 +109,7 @@ export const TaskCardView = forwardRef<
         {blocked ? (
           <Badge tone="blocked" className="ml-auto">
             <Lock size={11} aria-hidden />
-            {task.blocked ? "bloqueada" : "dependência"}
+            {task.blocked ? "travada" : "dependência"}
           </Badge>
         ) : null}
       </footer>

@@ -429,9 +429,9 @@ export async function removeComment(
   const comment = await findComment(db, context, commentId);
   if (!comment) return refused("not-found", commentId);
 
-  // Its author, or somebody who runs the workspace.
+  // Its author, or somebody who manages the project it was said in (§4.2.1).
   const isAuthor = comment.authorId === context.userId;
-  if (!isAuthor && !can(context, "manage-members")) {
+  if (!isAuthor && !can(context, "manage-project")) {
     return refused("forbidden", context.role);
   }
 

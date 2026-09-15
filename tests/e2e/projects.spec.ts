@@ -21,7 +21,7 @@ test("a new account arrives at a board that already has something on it", async 
   await expect(example).toBeVisible();
   // Two: the card with the block flag, and the one waiting on an unfinished
   // dependency. The grid counts the same union the domain does.
-  await expect(example.getByText("2 bloqueadas")).toBeVisible();
+  await expect(example.getByText("2 travadas")).toBeVisible();
 });
 
 test("completing a project with blocked work is refused", async ({

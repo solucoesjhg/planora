@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
-import { clearRateLimits } from "./rate-limits";
 
 /**
  * Signing up and verifying, through the interface and the local inbox. Shared
@@ -19,13 +18,25 @@ export function uniqueEmail(prefix = "e2e"): string {
   return `${prefix}-${randomUUID()}@example.com`;
 }
 
+/** The form on /register, wherever the page arrived at it. */
+export async function fillRegistration(
+  page: Page,
+  email: string,
+  options: { name?: string; password?: string } = {},
+): Promise<void> {
+  await page.getByLabel("Nome").fill(options.name ?? "Pessoa de Teste");
+  await page.getByLabel("E-mail").fill(email);
+  await page.getByLabel("Senha").fill(options.password ?? PASSWORD);
+  await page.getByRole("button", { name: "Criar conta" }).click();
+
+  await expect(
+    page.getByRole("heading", { name: "Confirme seu e-mail" }),
+  ).toBeVisible();
+}
+
 /**
- * Fills the form and submits it, standing up to the limiter.
- *
- * Sign-up allows five a minute per address, and every worker here shares
- * 127.0.0.1 — so a parallel run trips a rule that is doing its job. Clearing
- * the counter beforehand is not enough: the other workers spend it between
- * that and the click. The suite retries instead of the product relaxing.
+ * Each worker arrives from its own address (support/test.ts), so the sign-up
+ * limit — five a minute per address — is never shared between them.
  */
 export async function submitRegistration(
   page: Page,
@@ -33,21 +44,7 @@ export async function submitRegistration(
   password = PASSWORD,
 ): Promise<void> {
   await page.goto("/register");
-  await page.getByLabel("Nome").fill("Pessoa de Teste");
-  await page.getByLabel("E-mail").fill(email);
-  await page.getByLabel("Senha").fill(password);
-
-  const confirmation = page.getByRole("heading", { name: "Confirme seu e-mail" });
-  const limited = page.getByText("Muitas tentativas seguidas");
-
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    await clearRateLimits();
-    await page.getByRole("button", { name: "Criar conta" }).click();
-    await expect(confirmation.or(limited).first()).toBeVisible();
-    if (await confirmation.isVisible()) return;
-  }
-
-  await expect(confirmation).toBeVisible();
+  await fillRegistration(page, email, { password });
 }
 
 export async function registerAndVerify(

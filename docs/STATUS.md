@@ -1,9 +1,9 @@
 # Status
 
-**Phases 0 to 6 are merged** — Phase 3 without its deployed environment, which
-was deliberately left out.
-**Phase 7 is on the branch `phase-7-task-document`**, and the repairs a
-phase-by-phase review turned up are on `review-repairs`, stacked on it.
+**Phases 0 to 7 are merged**, with the repairs of two reviews — the
+phase-by-phase one (#9) and the consistency one (`consistency-repairs`).
+Phase 3's deployed environment has its pipeline and guide merged and is
+waiting on the accounts.
 
 Remote: https://github.com/solucoesjhg/planora (private)
 
@@ -55,7 +55,7 @@ reordered and deleted with their phase, planning and done staying at the ends;
 a move between two neighbours writes one row; the board remembers where each
 project was scrolled to.
 
-**Phase 7 — the task as a document** (this branch). A card opens over the board
+**Phase 7 — the task as a document.** A card opens over the board
 through an intercepted route, at a URL that can be shared and that renders as a
 full page when followed. Tiptap writes the body, the notes and the comments —
 all sanitized on the server before storage. Checklists, dependencies (the domain
@@ -67,15 +67,10 @@ of their column.
 
 ## Next
 
-- Review and merge the Phase 7 branch.
-- **The deployed environment is being set up now** — Supabase in São Paulo,
-  Vercel in `gru1`, Resend for email. The pipeline side is done and on
-  `review-repairs`: `docs/DEPLOY.md` has the steps, the variables and the five
-  checks that follow the first deploy. What is left needs accounts.
-- **The deployed environment was the one Phase 3 item still open.** A managed
-  Supabase project plus a Vercel deployment, so verification and invitation
-  links have a real URL, and migrations run from the pipeline. It needs
-  accounts on external services, so it waits for a decision.
+- **The first deploy** — the one Phase 3 criterion still open ("the same flow
+  works on the deployed URL"). The pipeline (`vercel-build` → `scripts/migrate.mjs`
+  → `next build`) and `docs/DEPLOY.md` are merged; what is left needs the three
+  accounts: Supabase in São Paulo, Vercel in `gru1`, Resend.
 - Phase 8 — dashboard, health surfaces and files: the multi-project dashboard,
   the contextual sidebar with the five dimensions, daily health snapshots and
   the trend line, the global file gallery, and settings.
@@ -102,8 +97,9 @@ of their column.
   the runner; the plan puts the full suite in CI at Phase 11. It runs locally
   with `pnpm e2e`.
 - No CLI seed script yet; the seed is exercised by the integration tests, and
-  `/dev/ui` renders fixtures rather than database rows. A `db:seed` command is
-  worth adding when a screen needs a populated database to look at.
+  `/dev/ui` renders hand-written examples rather than database rows. A
+  `db:seed` command is worth adding when a screen needs a populated database
+  to look at.
 - CI warns that the `actions/*@v4` steps target Node 20, which GitHub has
   deprecated; the runner forces Node 24 and the jobs pass.
 
@@ -134,6 +130,63 @@ design, and the invitation lookup by token hash), and the health engine — 435
 lines, fully tested — still has no caller, by the plan's own sequencing. It
 arrives in Phase 8 having never run against real data, which is worth knowing
 before it does.
+
+## What the consistency review found
+
+Plan, STATUS, DEPLOY, AGENTS, README, schema, events, permissions, routes,
+tests and configuration, each read against the others. Repaired on
+`consistency-repairs`:
+
+- **Three catalogued events nothing emitted** — `task.completed`,
+  `dependency.resolved`, `member.invited`. `moveTask` now emits the first two
+  in the transaction that knows; `inviteMember` the third, after delivery.
+- **A newcomer lost the invitation.** `/register` ignored `next`, so somebody
+  registering to accept an invitation verified, landed on their own dashboard,
+  and the token stayed in the email. `next` travels through sign-up into the
+  verification link. Accepting is now a click, not a page load — a mail client
+  that prefetches links would otherwise have accepted on the person's behalf —
+  and the click makes the workspace joined the one the browser looks at.
+- **The strings module the plan relied on did not exist.** Phase labels were
+  defined three times, priorities twice, roles once with a fourth vocabulary.
+  `src/lib/strings.ts` is the one place now; Appendix B matches the screens.
+- **Two words for one state.** "Bloqueada" on the card and toast, "travada"
+  everywhere else. It is *travada*, on every screen and in the glossary.
+- **§5 named libraries the code never installed** — Framer Motion, Zustand,
+  React Hook Form. The rows now say what the code does instead, and when each
+  library would join.
+- `PHASES` and `PRIORITIES` were defined in the domain and again in the
+  schema; the schema imports them.
+- `task_assignees` sat unused since Phase 2 with no phase to land in; it lands
+  in Phase 8.
+- Moderating comments moved from *invite members* to *manage projects*, and
+  the roles table gained the column.
+- README was the framework's template; `supabase` was a 100 MB devDependency
+  for a stack that was never adopted; `isStuck`, `IMAGE_MIME_TYPES` and
+  `setStorage` had no callers; `ENABLE_DEV_ROUTES` and `DISABLE_BREACH_CHECK`
+  were read and documented nowhere.
+
+One finding was withdrawn during the review: the task actions *do* drain the
+outbox — through their shared `refresh()` helper, which a count of direct
+calls missed.
+
+And one only appeared when the suite finally ran the way its configuration
+says it does. `playwright.config.ts` builds for production, but every earlier
+run had found a `next dev` on port 3000 and reused it. With the port free, the
+production server refused to start: `senderFromEnvironment` requires a Resend
+key outside development, and the suite has none — it wants Mailpit. Storage
+already had the answer (`STORAGE_DRIVER=local`); mail now has the same one,
+`EMAIL_DRIVER=mailpit`, asked for by name in the suite and nowhere else.
+
+And the suite, running against production for the first time, found one
+more: **"salvo" was shown before anything was saved.** The document's `run()`
+started a transition and returned at once, so the editor's `await onSave()`
+resolved immediately and the label appeared while the request had not left.
+Close the modal and drag the card in that window — which the E2E does in a
+second, and a person does in three — and the late save posts to a URL the
+router has already left; the next navigation to it is dropped. `run()` now
+resolves when the action has answered, the editor keeps its unsaved flag in a
+ref the blur handler cannot read stale, and closing the modal blurs the editor
+before the URL changes.
 
 ## Decisions taken since the plan
 
@@ -199,9 +252,10 @@ before it does.
   counts per IP, and every worker reaches localhost as `::1`, which normalizes
   to one shared bucket — so five workers spent one worker's five signups. Each
   worker now sends its own `x-forwarded-for`, which is how real clients are
-  counted apart. The production limit is untouched. *Worth checking in Phase 10:
-  behind a proxy chain Better Auth needs `advanced.ipAddress.trustedProxies`, or
-  it falls back to a single shared bucket for everyone.*
+  counted apart, and the global setup clears the counters a previous run left.
+  The production limit is untouched. *Worth checking in Phase 10: behind a
+  proxy chain Better Auth needs `advanced.ipAddress.trustedProxies`, or it
+  falls back to a single shared bucket for everyone.*
 - **Three E2E workers locally, the default in CI.** A production build plus one
   browser per worker on this laptop starved the server and tests failed on
   timing rather than on behaviour.
@@ -217,12 +271,6 @@ before it does.
   raced the uniqueness check. `onConflictDoNothing` claims the slug and falls
   back — and the fallback reads the **end** of the user id, because a UUID v7
   starts with a timestamp and accounts created in the same instant share it.
-- **The E2E suite works around the limiter rather than weakening it.** Sign-up
-  allows five a minute per address and every Playwright worker is `127.0.0.1`,
-  so a parallel run trips a rule that is doing its job. Clearing the counter
-  before each signup is not enough — the other workers spend it between the
-  clear and the click — so `submitRegistration` clears, submits, and retries
-  when the 429 message appears. The production limit is untouched.
 - **The board's state is `useOptimistic` and Server Actions, not TanStack
   Query.** The board's data comes from a Server Component and the only mutation
   is the move, so a client cache would be a second source of truth to keep in

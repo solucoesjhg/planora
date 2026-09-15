@@ -104,11 +104,16 @@ export function senderFromEnvironment(
 
   if (apiKey && apiKey.length > 0) return resendSender(apiKey, from);
 
-  if (env["NODE_ENV"] === "production") {
+  // A production build may still want the local inbox — the E2E suite does —
+  // but it has to say so. A deployment that merely forgot its key must not
+  // post verification links into a Mailpit that is not there.
+  const deliberate = env["EMAIL_DRIVER"] === "mailpit";
+  if (env["NODE_ENV"] === "production" && !deliberate) {
     throw new Error(
       "RESEND_API_KEY is required in production: without it, account " +
         "verification and invitations would be posted to a local inbox that " +
-        "is not there.",
+        "is not there. To run a production build against Mailpit anyway — " +
+        "the E2E suite — set EMAIL_DRIVER=mailpit.",
     );
   }
 

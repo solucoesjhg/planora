@@ -10,6 +10,7 @@ import {
   workspaceInvitations,
   workspaceMembers,
   workspaces,
+  outboxEvents,
 } from "@/server/db/schema";
 import { resetDatabase } from "@/server/db/seed";
 import { memorySender } from "@/server/email/sender";
@@ -379,6 +380,10 @@ suite("invitations", () => {
 
     expect(isRefused(invited)).toBe(false);
     expect(sender.outbox[0]?.subject).toContain("convidou você");
+
+    // Delivered, so it is also an event (§4.5).
+    const events = await connection.db.select().from(outboxEvents);
+    expect(events.map((event) => event.type)).toStrictEqual(["member.invited"]);
 
     if (isRefused(invited)) return;
     const accepted = await acceptInvitation(connection.db, {

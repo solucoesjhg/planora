@@ -8,7 +8,7 @@
  */
 
 import { type Decision, allowed, refused } from "@/lib/result";
-import { isBlocked, unresolvedDependencies } from "./dependencies";
+import { unresolvedDependencies } from "./dependencies";
 import type { BoardColumn, BoardContext, Task } from "./types";
 
 export type MoveRefusal = "blocked" | "dependencies" | "checklist";
@@ -49,11 +49,6 @@ export function canMoveTask({
   }
 
   return allowed;
-}
-
-/** True when the task cannot be completed at all — the sidebar's signal. */
-export function isStuck(task: Task, context: BoardContext): boolean {
-  return isBlocked(task, context);
 }
 
 export type ColumnOperation = "rename" | "delete" | "reorder" | "rephase";

@@ -29,6 +29,7 @@ import {
 import type { TaskView } from "@/server/modules/tasks/view";
 import { RichText } from "./rich-text";
 import { TaskFiles, useImageUpload } from "./task-files";
+import { PRIORITY_OPTIONS, phaseLabel } from "@/lib/strings";
 
 /**
  * The task as a document (DEVELOPMENT_PLAN.md §7 Phase 7).
@@ -39,39 +40,40 @@ import { TaskFiles, useImageUpload } from "./task-files";
  * them, which is why they are labelled as belonging to *this* phase.
  */
 
-const PHASE_LABELS: Record<string, string> = {
-  planning: "Planejamento",
-  execution: "Execução",
-  review: "Revisão",
-  done: "Concluído",
-};
-
-const PRIORITY_LABELS = [
-  { value: "high", label: "Alta" },
-  { value: "medium", label: "Média" },
-  { value: "low", label: "Baixa" },
-];
-
 export function TaskDocument({ task }: { task: TaskView }) {
   const toast = useToast();
   const [, startTransition] = useTransition();
   const scope = { projectId: task.project.id, taskId: task.id };
 
+  /**
+   * Runs a Server Action inside a transition and resolves when it has
+   * answered — not when it was started. The editor shows "salvo" on that
+   * promise, so the word has to mean the write is done: a save still in flight
+   * while the person closes the modal and drags the card is the collision the
+   * E2E found, and a person who reads "salvo" and closes the tab deserves
+   * better than a request that may not have left yet.
+   */
   function run<T>(
     work: () => Promise<{ ok: boolean; reason?: string } & T>,
     whenRefused?: Partial<Record<string, string>>,
-  ) {
-    startTransition(async () => {
-      const result = await work();
-      if (result.ok) return;
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      startTransition(async () => {
+        try {
+          const result = await work();
+          if (result.ok) return;
 
-      const reason = result.reason ?? "";
-      toast.add({
-        title: whenRefused?.[reason] ?? MESSAGES[reason] ?? "Não deu para salvar.",
-        description:
-          reason === "forbidden"
-            ? "Seu papel neste espaço permite ler, não escrever."
-            : undefined,
+          const reason = result.reason ?? "";
+          toast.add({
+            title: whenRefused?.[reason] ?? MESSAGES[reason] ?? "Não deu para salvar.",
+            description:
+              reason === "forbidden"
+                ? "Seu papel neste espaço permite ler, não escrever."
+                : undefined,
+          });
+        } finally {
+          resolve();
+        }
       });
     });
   }
@@ -88,7 +90,7 @@ export function TaskDocument({ task }: { task: TaskView }) {
             <span aria-hidden>·</span>
             <span>{task.project.name}</span>
             <span aria-hidden>·</span>
-            <span>{PHASE_LABELS[task.column.phase] ?? task.column.name}</span>
+            <span>{phaseLabel(task.column.phase)}</span>
           </div>
 
           <TitleField
@@ -255,7 +257,7 @@ export function TaskDocument({ task }: { task: TaskView }) {
           {(id) => (
             <Select
               id={id}
-              items={PRIORITY_LABELS}
+              items={PRIORITY_OPTIONS}
               value={task.priority}
               disabled={!task.canWrite}
               onValueChange={(value) =>
@@ -397,7 +399,7 @@ export function TaskDocument({ task }: { task: TaskView }) {
                 className="flex items-center justify-between gap-2 text-xs"
               >
                 <span className="text-secondary">
-                  {entry.columnName ?? PHASE_LABELS[entry.toPhase]}
+                  {entry.columnName ?? phaseLabel(entry.toPhase)}
                 </span>
                 <span className="flex items-center gap-1 text-subtle">
                   <CalendarClock size={11} aria-hidden />
