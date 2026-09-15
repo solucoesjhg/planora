@@ -221,6 +221,12 @@ São Paulo, Resend with the test sender. Henrique ran the checks in
   removing a file reports its refusal too. `/api/attachments/<id>` answers 503
   rather than 404 when the store is the problem. Regression: three integration
   tests with a store that throws, one E2E that drops the upload at the network.
+- **The private bucket is now checked, not assumed.** Chasing the upload,
+  the bucket's *Public* switch got flipped. It is the property every signed
+  URL rests on and it lives in a dashboard checkbox, so the Supabase adapter
+  asks the bucket once per process before the first ticket or link and refuses
+  while it is public — asking again after a refusal, so flipping it back needs
+  no redeploy. Three unit tests against a stand-in for the SDK.
 - **Passed as they were.** The verification link pointed at the deployment; a
   task due today read "hoje"; a move, a new task and a resolved dependency each
   left rows in `activity_logs`.

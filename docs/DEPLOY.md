@@ -39,6 +39,13 @@ variables.
    person is in the workspace the file belongs to.
 4. Create.
 
+The application checks this itself. With a public bucket every upload and
+every file link is refused — the toast says the store did not answer, and the
+runtime log says `bucket "attachments" is public; it must be private`. Making a
+bucket public does not make an upload work: the browser uploads with a token
+the server signed, and the server uses the service role key, which needs no
+policy. Turning it off again takes effect on the next request, no redeploy.
+
 ### 1.3 The keys
 
 Left sidebar → **Settings** (bottom) → **API Keys**.
