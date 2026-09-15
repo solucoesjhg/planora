@@ -27,13 +27,37 @@ const REFUSALS: Record<string, string> = {
   "too-large": "O arquivo passa de 25 MB.",
   missing: "O arquivo não chegou ao armazenamento.",
   "not-found": "Essa tarefa não existe mais.",
+  "storage-unavailable":
+    "O armazenamento de arquivos não respondeu. Não é o arquivo: o log do servidor diz o motivo.",
 };
 
-/** The three steps, shared by the file list and by the editor's image drop. */
+/**
+ * What a refusal looks like on the screen. When the store is the problem, the
+ * store's own words go under the title: "Bucket not found" is a diagnosis, and
+ * the person reading it on the first deploy is the one who can act on it.
+ * Nothing secret travels in it — the store's message, not the request.
+ */
+function refusal(
+  result: { reason: string; detail?: string },
+  fallback = "Não deu para enviar o arquivo.",
+): { title: string; description?: string } {
+  const title = REFUSALS[result.reason] ?? fallback;
+  return result.reason === "storage-unavailable" && result.detail
+    ? { title, description: result.detail }
+    : { title };
+}
+
+/**
+ * The three steps, shared by the file list and by the editor's image drop.
+ *
+ * The promise it returns always settles. On the first production deploy the
+ * store threw, the Server Action rejected, and "Enviando…" stayed on the
+ * screen for good: nothing had been written to catch it.
+ */
 export function useUpload(scope: Scope): (file: File) => Promise<string | null> {
   const toast = useToast();
 
-  return async (file: File) => {
+  async function send(file: File): Promise<string | null> {
     const ticket = await requestUploadAction({
       projectId: scope.projectId,
       taskId: scope.taskId,
@@ -43,18 +67,29 @@ export function useUpload(scope: Scope): (file: File) => Promise<string | null> 
     });
 
     if (!ticket.ok) {
-      toast.add({ title: REFUSALS[ticket.reason] ?? "Não deu para enviar o arquivo." });
+      toast.add(refusal(ticket));
       return null;
     }
 
-    const sent = await fetch(ticket.value.url, {
-      method: ticket.value.method,
-      headers: ticket.value.headers,
-      body: file,
-    });
+    let sent: Response;
+    try {
+      sent = await fetch(ticket.value.url, {
+        method: ticket.value.method,
+        headers: ticket.value.headers,
+        body: file,
+      });
+    } catch (error) {
+      // A network failure — which, in a browser, includes a CORS preflight the
+      // store refused. Nothing answered, so there is no status to show.
+      console.error("[attachments] the store did not answer the upload", error);
+      toast.add({ title: "O armazenamento de arquivos não respondeu." });
+      return null;
+    }
 
     if (!sent.ok) {
-      toast.add({ title: "O armazenamento recusou o arquivo." });
+      // The status is the one clue there is: 413 is the bucket's own size
+      // limit, 415 its own type list, 403 a ticket that expired.
+      toast.add({ title: `O armazenamento recusou o arquivo (${sent.status}).` });
       return null;
     }
 
@@ -65,11 +100,23 @@ export function useUpload(scope: Scope): (file: File) => Promise<string | null> 
     });
 
     if (!confirmed.ok) {
-      toast.add({ title: REFUSALS[confirmed.reason] ?? "O envio não foi concluído." });
+      toast.add(refusal(confirmed, "O envio não foi concluído."));
       return null;
     }
 
     return confirmed.value.url;
+  }
+
+  return async (file: File) => {
+    try {
+      return await send(file);
+    } catch (error) {
+      // Whatever else threw — a Server Action rejecting, its message stripped
+      // in production — the promise settles and the person hears something.
+      console.error("[attachments] the upload failed", error);
+      toast.add({ title: "Não deu para enviar o arquivo. Tente de novo." });
+      return null;
+    }
   };
 }
 
@@ -81,6 +128,7 @@ export function useImageUpload(scope: Scope): (file: File) => Promise<string | n
 export function TaskFiles({ task }: { task: TaskView }) {
   const scope = { projectId: task.project.id, taskId: task.id };
   const upload = useUpload(scope);
+  const toast = useToast();
   const input = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
   const [, startTransition] = useTransition();
@@ -88,9 +136,13 @@ export function TaskFiles({ task }: { task: TaskView }) {
   async function onPick(files: FileList | null): Promise<void> {
     if (!files || files.length === 0) return;
     setSending(true);
-    for (const file of files) await upload(file);
-    setSending(false);
-    if (input.current) input.current.value = "";
+    try {
+      for (const file of files) await upload(file);
+    } finally {
+      // Whatever happened, the button comes back.
+      setSending(false);
+      if (input.current) input.current.value = "";
+    }
   }
 
   return (
@@ -136,7 +188,13 @@ export function TaskFiles({ task }: { task: TaskView }) {
                   aria-label={`Remover ${file.name}`}
                   onClick={() =>
                     startTransition(async () => {
-                      await removeAttachmentAction({ ...scope, attachmentId: file.id });
+                      const result = await removeAttachmentAction({
+                        ...scope,
+                        attachmentId: file.id,
+                      });
+                      if (!result.ok) {
+                        toast.add(refusal(result, "Não deu para remover o arquivo."));
+                      }
                     })
                   }
                   className="rounded-control p-1.5 text-subtle opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"

@@ -18,11 +18,42 @@ export function supabaseStorageAdapter(
   });
   const files = () => client.storage.from(bucket);
 
+  /**
+   * The private bucket is the property this adapter exists for: nothing is
+   * readable without a URL this application signed, after the workspace
+   * check. That property lives in a checkbox on Supabase's dashboard, and a
+   * checkbox gets flipped by whoever is trying to make an upload work. So the
+   * bucket is asked, once per process, before the first ticket or link — and
+   * asked again after a refusal, so flipping it back needs no redeploy.
+   */
+  let known: Promise<void> | null = null;
+  const ensurePrivate = (): Promise<void> => {
+    known ??= describeBucket().catch((error: unknown) => {
+      known = null;
+      throw error;
+    });
+    return known;
+  };
+  async function describeBucket(): Promise<void> {
+    const { data, error } = await client.storage.getBucket(bucket);
+    if (error || !data) {
+      throw new Error(`storage could not describe bucket "${bucket}": ${error?.message}`);
+    }
+    if (data.public) {
+      throw new Error(
+        `bucket "${bucket}" is public; it must be private — every file in it can be ` +
+          "read by anyone with its path, for as long as it exists. Supabase → " +
+          "Storage → the bucket → Edit → Public bucket off (docs/DEPLOY.md, 1.2).",
+      );
+    }
+  }
+
   return {
     name: "supabase",
     bucket,
 
     async upload(path, mime): Promise<UploadTicket> {
+      await ensurePrivate();
       const { data, error } = await files().createSignedUploadUrl(path, {
         upsert: false,
       });
@@ -61,6 +92,7 @@ export function supabaseStorageAdapter(
     },
 
     async signedUrl(path, seconds) {
+      await ensurePrivate();
       const { data, error } = await files().createSignedUrl(path, seconds);
       if (error || !data) throw new Error(`storage refused a link: ${error?.message}`);
       return data.signedUrl;

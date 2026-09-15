@@ -76,6 +76,22 @@ export async function waitForInvitationLink(
   return waitForLink(request, email, /https?:\/\/[^\s"<>]+\/invitations\/[^\s"<>]*/);
 }
 
+/** How many messages the local inbox holds for an address. */
+export async function messagesTo(
+  request: APIRequestContext,
+  email: string,
+): Promise<number> {
+  const found = await request.get(
+    `${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:"${email}"`)}&limit=50`,
+  );
+  if (!found.ok()) return 0;
+
+  const { messages } = (await found.json()) as MailpitList;
+  return messages.filter((message) =>
+    message.To.some((recipient) => recipient.Address === email),
+  ).length;
+}
+
 async function waitForLink(
   request: APIRequestContext,
   email: string,

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { isRefused } from "@/lib/result";
 import { tenantContext } from "@/server/auth/tenant";
@@ -125,6 +125,98 @@ suite("attachments", () => {
       ticket.value.attachmentId,
     );
     expect(isRefused(confirmed) && confirmed.reason).toBe("missing");
+  });
+
+  /**
+   * What the first production deploy showed: the bucket was not there, the
+   * store threw, the Server Action rejected with its message stripped, and
+   * "Enviando…" stayed on the screen for good. A store that fails is a refusal
+   * the interface can name, and the cause goes where the deployer will look.
+   */
+  it("a store that cannot issue a ticket is a refusal, and leaves no row", async () => {
+    const broken: MemoryStorage = {
+      ...storage,
+      async upload() {
+        throw new Error("storage refused an upload ticket: Bucket not found");
+      },
+    };
+    const rows = () => connection.db.select().from(attachments);
+    const before = (await rows()).length;
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const result = await requestUpload(connection.db, owner(), broken, {
+        projectId,
+        taskId,
+        name: "planta baixa.pdf",
+        mime: "application/pdf",
+        size: 2048,
+      });
+
+      expect(isRefused(result) && result.reason).toBe("storage-unavailable");
+      expect(isRefused(result) && result.detail).toContain("Bucket not found");
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringContaining("issue an upload ticket"),
+        expect.any(Error),
+      );
+    } finally {
+      logged.mockRestore();
+    }
+
+    // Nothing is left waiting for bytes that can never come.
+    expect((await rows()).length).toBe(before);
+  });
+
+  it("a store that cannot say what landed is a refusal too, not 'missing'", async () => {
+    const ticket = await request();
+    if (isRefused(ticket)) throw new Error(ticket.reason);
+
+    const silent: MemoryStorage = {
+      ...storage,
+      async head() {
+        throw new Error("fetch failed");
+      },
+    };
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    let confirmed;
+    try {
+      confirmed = await confirmUpload(
+        connection.db,
+        owner(),
+        silent,
+        ticket.value.attachmentId,
+      );
+    } finally {
+      logged.mockRestore();
+    }
+    expect(isRefused(confirmed) && confirmed.reason).toBe("storage-unavailable");
+
+    // The row is still pending: the bytes may well be there.
+    const [row] = await connection.db
+      .select()
+      .from(attachments)
+      .where(eq(attachments.id, ticket.value.attachmentId));
+    expect(row?.status).toBe("pending");
+  });
+
+  it("a link the store will not sign is a refusal the route can tell apart", async () => {
+    const ticket = await request();
+    if (isRefused(ticket)) throw new Error(ticket.reason);
+
+    const mute: MemoryStorage = {
+      ...storage,
+      async signedUrl() {
+        throw new Error("Invalid JWT");
+      },
+    };
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    let link;
+    try {
+      link = await linkFor(connection.db, owner(), mute, ticket.value.attachmentId);
+    } finally {
+      logged.mockRestore();
+    }
+    expect(isRefused(link) && link.reason).toBe("storage-unavailable");
   });
 
   it("throws away an object that arrived larger than the limit", async () => {

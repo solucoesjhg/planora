@@ -14,7 +14,7 @@
  */
 
 import { and, eq } from "drizzle-orm";
-import { ok, refused, type Result } from "@/lib/result";
+import { isRefused, ok, refused, type Result } from "@/lib/result";
 import { newId } from "@/lib/id";
 import { can, type TenantContext } from "@/server/auth/tenant";
 import type { Database } from "@/server/db/client";
@@ -27,7 +27,9 @@ export type AttachmentFailure =
   | "not-found"
   | "unsupported-type"
   | "too-large"
-  | "missing";
+  | "missing"
+  /** The store threw. Not the file, not the person: the cause is in the log. */
+  | "storage-unavailable";
 
 /** 25 MB — a photograph of a wall, a PDF of a quote, a spreadsheet. */
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -95,6 +97,13 @@ export async function requestUpload(
   const attachmentId = newId();
   const path = objectPath(context.workspaceId, input.projectId, attachmentId, input.name);
 
+  // The ticket before the row: a row for an upload that can never be made
+  // would sit at `pending` for good.
+  const ticket = await askStore("issue an upload ticket", () =>
+    storage.upload(path, input.mime),
+  );
+  if (isRefused(ticket)) return ticket;
+
   await db.insert(attachments).values({
     id: attachmentId,
     workspaceId: context.workspaceId,
@@ -108,7 +117,7 @@ export async function requestUpload(
     uploadedBy: context.userId,
   });
 
-  return ok({ attachmentId, ticket: await storage.upload(path, input.mime) });
+  return ok({ attachmentId, ticket: ticket.value });
 }
 
 export async function confirmUpload(
@@ -124,12 +133,17 @@ export async function confirmUpload(
   const row = await findAttachment(db, context, attachmentId);
   if (!row) return refused("not-found", attachmentId);
 
-  const stored = await storage.head(row.path);
+  const asked = await askStore("say what landed", () => storage.head(row.path));
+  if (isRefused(asked)) return asked;
+  const stored = asked.value;
   if (!stored) return refused("missing", row.path);
 
   // What the store holds, not what the browser claimed it would send.
   if (stored.size > MAX_ATTACHMENT_BYTES) {
-    await storage.remove(row.path);
+    const removed = await askStore("remove an oversized object", () =>
+      storage.remove(row.path),
+    );
+    if (isRefused(removed)) return removed;
     await db
       .delete(attachments)
       .where(
@@ -174,10 +188,10 @@ export async function linkFor(
   const row = await findAttachment(db, context, attachmentId);
   if (!row) return refused("not-found", attachmentId);
 
-  return ok({
-    url: await storage.signedUrl(row.path, seconds),
-    expiresAt: new Date(Date.now() + seconds * 1000),
-  });
+  const url = await askStore("sign a link", () => storage.signedUrl(row.path, seconds));
+  if (isRefused(url)) return url;
+
+  return ok({ url: url.value, expiresAt: new Date(Date.now() + seconds * 1000) });
 }
 
 export async function removeAttachment(
@@ -193,7 +207,8 @@ export async function removeAttachment(
 
   // The bytes first: a row without an object is a broken card, an object
   // without a row is a leak nobody can see.
-  await storage.remove(row.path);
+  const removed = await askStore("remove an object", () => storage.remove(row.path));
+  if (isRefused(removed)) return removed;
   await db
     .delete(attachments)
     .where(
@@ -223,6 +238,33 @@ export async function findAttachment(
     .limit(1);
 
   return row ?? null;
+}
+
+/* ------------------------------------------------------------------ *
+ * The store
+ * ------------------------------------------------------------------ */
+
+/**
+ * The store is the one dependency in this module that is not ours: a bucket
+ * nobody created, a key pasted wrong, a network that is down. Each of those
+ * used to throw — and a Server Action that throws reaches the browser as a
+ * rejected promise with its message stripped, which is how "Enviando…" came to
+ * stay on the screen for good on the first production deploy. The store's
+ * failure becomes a refusal the interface can name; the log keeps the cause.
+ */
+async function askStore<Value>(
+  what: string,
+  work: () => Promise<Value>,
+): Promise<Result<Value, "storage-unavailable">> {
+  try {
+    return ok(await work());
+  } catch (error) {
+    console.error(`[attachments] the store failed to ${what}:`, error);
+    return refused(
+      "storage-unavailable",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 /* ------------------------------------------------------------------ *

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
-import { signUp } from "@/lib/auth-client";
+import { authClient, signUp } from "@/lib/auth-client";
 
 /**
  * `next` is where the verification link should land — the invitation somebody
@@ -17,6 +17,8 @@ export function RegisterForm({ next }: { next: string }) {
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [email, setEmail] = useState("");
+  const [resend, setResend] = useState<"idle" | "sending" | "sent">("idle");
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -24,9 +26,10 @@ export function RegisterForm({ next }: { next: string }) {
     setError(null);
 
     const form = new FormData(event.currentTarget);
+    const address = String(form.get("email") ?? "");
     const result = await signUp.email({
       name: String(form.get("name") ?? ""),
-      email: String(form.get("email") ?? ""),
+      email: address,
       password: String(form.get("password") ?? ""),
       // Travels into the verification link, so the link lands here.
       callbackURL: next,
@@ -44,7 +47,33 @@ export function RegisterForm({ next }: { next: string }) {
       );
       return;
     }
+    setEmail(address);
     setSent(true);
+  }
+
+  /**
+   * Sign-up hands the message to the sender in the background and reports
+   * success whatever happened to it — on the first production deploy the screen
+   * promised an email that Resend had refused. This endpoint waits for the
+   * send and answers with the failure, so the second try is the one that
+   * tells the truth.
+   */
+  async function resendEmail() {
+    setResend("sending");
+    setError(null);
+
+    const result = await authClient.sendVerificationEmail({ email, callbackURL: next });
+
+    if (result.error) {
+      setResend("idle");
+      setError(
+        result.error.status === 429
+          ? "Muitas tentativas seguidas. Espere um minuto e tente de novo."
+          : "O e-mail não pôde ser enviado. O log do servidor diz o motivo.",
+      );
+      return;
+    }
+    setResend("sent");
   }
 
   if (sent) {
@@ -55,8 +84,31 @@ export function RegisterForm({ next }: { next: string }) {
         </span>
         <h1 className="pln-display text-2xl text-primary">Confirme seu e-mail</h1>
         <p className="text-[13px] text-secondary">
-          Enviamos um link de confirmação. Ele vale por 15 minutos.
+          Enviamos um link de confirmação para{" "}
+          <strong className="font-medium text-primary">{email}</strong>. Ele vale por
+          15 minutos.
         </p>
+        <p className="text-xs text-subtle">Não chegou? Confira o spam, ou peça outro.</p>
+
+        {error ? (
+          <p role="alert" className="text-[13px] text-danger">
+            {error}
+          </p>
+        ) : null}
+
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={resend !== "idle"}
+          onClick={() => void resendEmail()}
+        >
+          {resend === "sending"
+            ? "Enviando…"
+            : resend === "sent"
+              ? "Enviado de novo"
+              : "Reenviar e-mail"}
+        </Button>
       </section>
     );
   }

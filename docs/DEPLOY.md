@@ -39,6 +39,13 @@ variables.
    person is in the workspace the file belongs to.
 4. Create.
 
+The application checks this itself. With a public bucket every upload and
+every file link is refused — the toast says the store did not answer, and the
+runtime log says `bucket "attachments" is public; it must be private`. Making a
+bucket public does not make an upload work: the browser uploads with a token
+the server signed, and the server uses the service role key, which needs no
+policy. Turning it off again takes effect on the next request, no redeploy.
+
 ### 1.3 The keys
 
 Left sidebar → **Settings** (bottom) → **API Keys**.
@@ -110,6 +117,23 @@ DNS records it gives you at your registrar, wait for it to go green, then change
 `EMAIL_FROM` to something at that domain and redeploy.
 
 ---
+
+### "Confirme seu e-mail", and nothing arrives
+
+Sign-up hands the message to Resend **in the background and swallows the
+failure**: the account exists, the screen promises an email, and the only
+trace is one line in the runtime log (Vercel → *Logs*, filter by
+`background task`):
+
+```
+Failed to run background task: Error: resend refused the message: 403 {...}
+```
+
+The body after the status says why — with the test sender, the recipient is
+by far the most common cause. The confirmation screen shows the address it
+sent to and has a **Reenviar e-mail** button; that one goes through the
+endpoint that *waits* for the send, so a second try shows the failure on the
+screen instead of in the log.
 
 ## 3. Vercel — the deployment
 
@@ -218,8 +242,24 @@ Check these in order — each one has already been the cause of a failure here:
    link must point at the deployment rather than `localhost`. If it points at
    localhost, `BETTER_AUTH_URL` is wrong or was set after the build.
 2. **Open a task and attach a file.** The link should be
-   `/api/attachments/<id>` and redirect to a `supabase.co` signed URL. If the
-   file 404s, the bucket name does not match `SUPABASE_STORAGE_BUCKET`.
+   `/api/attachments/<id>` and redirect to a `supabase.co` signed URL.
+   - A toast ending *o log do servidor diz o motivo* means the store threw on
+     the server, before the browser sent a byte. The runtime log has the cause
+     on a line starting `[attachments] the store failed to`: `Bucket not found`
+     is a bucket whose name does not match `SUPABASE_STORAGE_BUCKET` (1.2);
+     `Invalid API key` is `SUPABASE_SERVICE_ROLE_KEY` holding something that is
+     not a key of this project at all — cut short when pasted, copied from
+     another project, or the *JWT secret* or the project ref copied instead of
+     the secret key (1.3); a message about row-level security is the
+     *publishable* / `anon` key where the secret one should be. Variables only
+     reach the application on the next deploy.
+   - A toast saying only *O armazenamento de arquivos não respondeu* means the
+     browser's own upload to Supabase got no answer — the network, or a CORS
+     preflight refused. The browser console (F12) has the reason.
+   - *O armazenamento recusou o arquivo (413)* or *(415)* is a size or type
+     restriction set on the bucket itself, in the Supabase dashboard.
+   - An existing file that 404s is the bucket name again; a 503 is the store
+     not answering the signing request.
 3. **Look at a deadline.** A task due today must read "hoje". This was wrong in
    every zone west of UTC until the calendar-date repair.
 4. **Move a card, then check `activity_logs` has a row** (Supabase → *Table

@@ -34,9 +34,16 @@ export async function GET(
   if (!tenant) return NextResponse.json({ error: "not-found" }, { status: 404 });
 
   const link = await linkFor(database, tenant, getStorage(), attachmentId);
-  // A file in another workspace is not found, never forbidden: a stranger
-  // should not learn that it exists.
-  if (isRefused(link)) return NextResponse.json({ error: "not-found" }, { status: 404 });
+  if (isRefused(link)) {
+    // The store not answering is not "no such file". The row was found first,
+    // in this workspace, so a 503 here teaches a stranger nothing.
+    if (link.reason === "storage-unavailable") {
+      return NextResponse.json({ error: "storage-unavailable" }, { status: 503 });
+    }
+    // A file in another workspace is not found, never forbidden: a stranger
+    // should not learn that it exists.
+    return NextResponse.json({ error: "not-found" }, { status: 404 });
+  }
 
   // Supabase signs an absolute URL; the filesystem adapter may sign a relative
   // one. This request's own URL is the base either way.
