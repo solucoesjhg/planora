@@ -1,9 +1,9 @@
 # Status
 
 **Phases 0 to 7 are merged**, with the repairs of two reviews — the
-phase-by-phase one (#9) and the consistency one (`consistency-repairs`).
-Phase 3's deployed environment has its pipeline and guide merged and is
-waiting on the accounts.
+phase-by-phase one (#9) and the consistency one (#11). **Production is live at
+https://planora-rosy.vercel.app** (Vercel `gru1`, Supabase São Paulo, Resend);
+the Phase 3 criterion — the same flow on the deployed URL — is met.
 
 Remote: https://github.com/solucoesjhg/planora (private)
 
@@ -67,10 +67,12 @@ of their column.
 
 ## Next
 
-- **The first deploy** — the one Phase 3 criterion still open ("the same flow
-  works on the deployed URL"). The pipeline (`vercel-build` → `scripts/migrate.mjs`
-  → `next build`) and `docs/DEPLOY.md` are merged; what is left needs the three
-  accounts: Supabase in São Paulo, Vercel in `gru1`, Resend.
+- **Finish the post-deploy checks** (`docs/DEPLOY.md`, "After the first
+  deploy"). Passed: the verification email, "hoje", the activity feed. Attaching
+  a file did not — see "What the first deploy showed" — and is to be tried
+  again after `deploy-production-findings` is deployed; the cause on the
+  deployment itself is in the runtime log. Still untried: the sixth sign-up in
+  a minute being refused.
 - Phase 8 — dashboard, health surfaces and files: the multi-project dashboard,
   the contextual sidebar with the five dimensions, daily health snapshots and
   the trend line, the global file gallery, and settings.
@@ -187,6 +189,44 @@ router has already left; the next navigation to it is dropped. `run()` now
 resolves when the action has answered, the editor keeps its unsaved flag in a
 ref the blur handler cannot read stale, and closing the modal blurs the editor
 before the URL changes.
+
+## What the first deploy showed
+
+Production is https://planora-rosy.vercel.app — Vercel in `gru1`, Supabase in
+São Paulo, Resend with the test sender. Henrique ran the checks in
+`docs/DEPLOY.md` by hand.
+
+- **Migrations could not reach Supabase's direct host** (#12). It answers only
+  over IPv6 and Vercel's builders have none; the build failed right after
+  "Using 'postgres' driver". `MIGRATION_DATABASE_URL` is the *session pooler*
+  now, and `scripts/migrate.mjs` says so when it sees the direct host fail.
+- **Every preview deployment answered with a 500** (#12): no variables. The
+  `ignoreCommand` in `vercel.json` skips every build that is not production
+  until Phase 11 gives each pull request a database of its own.
+- **"Confirme seu e-mail", and no email.** The address was one Resend's test
+  sender refuses — but nothing said so: Better Auth sends the sign-up message
+  through `runInBackgroundOrAwait`, which logs the failure and reports
+  success. The confirmation screen now shows the address it sent to and has
+  **Reenviar e-mail**, which goes through `/send-verification-email` — the
+  endpoint that waits and answers with the failure. `docs/DEPLOY.md` names the
+  log line to look for. E2E: the second message arrives.
+- **Attaching a file: "Enviando…" for good.** The store threw (a bucket or a
+  key), the Server Action rejected with its message stripped, and the button's
+  `sending` flag was never reset — no path in the browser code caught anything.
+  Repaired on both sides. `attachments.ts` turns any store failure into a
+  `storage-unavailable` refusal and logs the cause under `[attachments]`; the
+  ticket is now issued *before* the pending row, so a store that cannot be
+  reached leaves nothing behind. The browser side settles every promise, names
+  a network failure and a refused status, and resets the button in `finally`;
+  removing a file reports its refusal too. `/api/attachments/<id>` answers 503
+  rather than 404 when the store is the problem. Regression: three integration
+  tests with a store that throws, one E2E that drops the upload at the network.
+- **Passed as they were.** The verification link pointed at the deployment; a
+  task due today read "hoje"; a move, a new task and a resolved dependency each
+  left rows in `activity_logs`.
+- **Still to be swept:** an upload that got its ticket and never confirmed
+  leaves a `pending` row (the network test above makes one). Nothing reads
+  them; a sweep belongs with the file gallery in Phase 8.
 
 ## Decisions taken since the plan
 

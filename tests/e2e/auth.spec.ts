@@ -1,5 +1,5 @@
 import { test, expect } from "./support/test";
-import { submitRegistration, uniqueEmail } from "./support/account";
+import { messagesTo, submitRegistration, uniqueEmail } from "./support/account";
 
 /**
  * The Phase 3 criterion, end to end: an account is created, the verification
@@ -35,6 +35,28 @@ test("signing up leads to a verified account with a workspace", async ({
 
   await page.getByRole("button", { name: "Conta" }).click();
   await expect(page.getByText(email)).toBeVisible();
+});
+
+/**
+ * Sign-up sends the verification message in the background and reports success
+ * whatever became of it: on the first production deploy the screen said
+ * "Confirme seu e-mail" and Resend had refused the address. The button repeats
+ * the send through the endpoint that waits for it and answers.
+ */
+test("the confirmation screen can send the message again", async ({
+  page,
+  request,
+}) => {
+  const email = uniqueEmail();
+  await submitRegistration(page, email, PASSWORD);
+  await expect(page.getByText(email)).toBeVisible();
+
+  await page.getByRole("button", { name: "Reenviar e-mail" }).click();
+  await expect(page.getByRole("button", { name: "Enviado de novo" })).toBeVisible();
+
+  await expect(async () => {
+    expect(await messagesTo(request, email)).toBe(2);
+  }).toPass();
 });
 
 test("the front door is the product's, not the framework's", async ({ page }) => {

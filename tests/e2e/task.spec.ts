@@ -178,6 +178,34 @@ test.describe("the task as a document", () => {
   });
 
   /**
+   * What the first production deploy showed: the store did not answer, the
+   * promise never settled, and "Enviando…" stayed on the screen for good. The
+   * network is the one place a browser can make the store fail on purpose.
+   */
+  test("a store that does not answer says so, and the button comes back", async ({
+    page,
+  }) => {
+    await openCard(page, "limpeza");
+    const modal = page.getByTestId("task-modal");
+
+    // The browser's own upload, dropped at the network — what a refused CORS
+    // preflight or an unreachable host looks like from here.
+    await page.route("**/api/files/**", (route) => route.abort("failed"));
+
+    await modal.getByLabel("Escolher arquivos").setInputFiles({
+      name: "foto.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("nada"),
+    });
+
+    await expect(
+      page.getByText("O armazenamento de arquivos não respondeu."),
+    ).toBeVisible();
+    await expect(modal.getByRole("button", { name: "Anexar arquivo" })).toBeEnabled();
+    await expect(modal.getByRole("link", { name: "Abrir foto.txt" })).toHaveCount(0);
+  });
+
+  /**
    * The regression that reached the screen: a due date used to travel as an
    * instant, and every zone west of UTC read it back as the day before — a task
    * due today was shown as one day late. The browser here runs in whatever zone
