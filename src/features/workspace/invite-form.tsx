@@ -20,6 +20,8 @@ const REFUSALS: Record<string, string> = {
   forbidden: "Seu papel neste espaço não permite convidar.",
   "already-member": "Essa pessoa já está no espaço de trabalho.",
   "already-invited": "Já existe um convite em aberto para esse e-mail.",
+  undeliverable:
+    "O provedor de e-mail recusou a entrega. Com o remetente de teste do Resend só dá para escrever para o seu próprio endereço — verifique um domínio para convidar outras pessoas.",
 };
 
 /**
