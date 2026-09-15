@@ -67,12 +67,6 @@ of their column.
 
 ## Next
 
-- **Finish the post-deploy checks** (`docs/DEPLOY.md`, "After the first
-  deploy"). Passed: the verification email, "hoje", the activity feed. Attaching
-  a file did not — `Invalid API key`, see "What the first deploy showed" — and
-  is to be tried again once `SUPABASE_URL` is the bare project URL. The rate
-  limiter passed from outside, without creating accounts: ten sign-ins with
-  a wrong password answered 401, the eleventh 429 with `retry-after: 60`.
 - Phase 8 — dashboard, health surfaces and files: the multi-project dashboard,
   the contextual sidebar with the five dimensions, daily health snapshots and
   the trend line, the global file gallery, and settings.
@@ -233,9 +227,21 @@ São Paulo, Resend with the test sender. Henrique ran the checks in
   asks the bucket once per process before the first ticket or link and refuses
   while it is public — asking again after a refusal, so flipping it back needs
   no redeploy. Three unit tests against a stand-in for the SDK.
+- **Two merges to `main` produced no deployment** (#15). The `ignoreCommand`
+  from #12 read `VERCEL_ENV`, which Vercel hands to the Ignored Build Step only
+  while *Automatically expose System Environment Variables* is on; with it
+  absent the command exited 0 and every build was skipped, production
+  included — the production that existed had come from manual redeploys, the
+  one path that bypasses the switch. The command now builds when the variable
+  is absent. The first merge after it deployed on its own, in about a minute.
 - **Passed as they were.** The verification link pointed at the deployment; a
   task due today read "hoje"; a move, a new task and a resolved dependency each
-  left rows in `activity_logs`.
+  left rows in `activity_logs`. The limiter passed from outside without
+  creating accounts: ten sign-ins with a wrong password answered 401, the
+  eleventh 429 with `retry-after: 60`.
+- **All five checks pass** (2026-09-15, after #15 deployed): the attachment
+  opens through a `supabase.co` signed URL from its `/api/attachments/<id>`
+  address. The Phase 3 criterion is closed.
 - **Still to be swept:** an upload that got its ticket and never confirmed
   leaves a `pending` row (the network test above makes one). Nothing reads
   them; a sweep belongs with the file gallery in Phase 8.
