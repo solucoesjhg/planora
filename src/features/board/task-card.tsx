@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
 import type { BoardTaskView } from "@/server/modules/board/view";
 import { priorityLabel } from "@/lib/strings";
+import { AvatarStack } from "@/features/tasks/assignee-picker";
 
 export type TaskCardProps = {
   readonly task: BoardTaskView;
@@ -111,6 +112,15 @@ export const TaskCardView = forwardRef<
             <Lock size={11} aria-hidden />
             {task.blocked ? "travada" : "dependência"}
           </Badge>
+        ) : null}
+
+        {task.assignees.length > 0 ? (
+          <span
+            className={cn(!blocked && "ml-auto")}
+            title={task.assignees.map((person) => person.name).join(", ")}
+          >
+            <AvatarStack people={task.assignees} />
+          </span>
         ) : null}
       </footer>
     </article>

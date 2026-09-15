@@ -8,7 +8,7 @@
  * leaves behind.
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { canAddDependency, type DependencyRefusal } from "@/domain/dependencies";
 import { keyBetween } from "@/domain/kanban";
 import type { BoardContext, CalendarDate, Priority } from "@/domain/types";
@@ -21,6 +21,8 @@ import {
   taskComments,
   taskDependencies,
   tasks,
+  users,
+  workspaceMembers,
 } from "@/server/db/schema";
 import { emit } from "@/server/events/outbox";
 import { lastPositionIn, loadBoardContext } from "@/server/modules/board/repository";
@@ -31,10 +33,13 @@ import {
   findTask,
   lastChecklistPosition,
   nextTaskNumber,
+  replaceAssignees,
   updateTaskRow,
 } from "./repository";
 
 export type TaskFailure = "forbidden" | "not-found" | "empty" | "too-long";
+/** Somebody named who is not in this workspace. */
+export type AssignFailure = TaskFailure | "not-a-member";
 export type DependencyFailure = TaskFailure | DependencyRefusal;
 
 const TITLE_LIMIT = 200;
@@ -174,6 +179,73 @@ export async function updateTask(
         actorId: context.userId,
       });
     }
+
+    return ok({ taskId: task.id });
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * Assignees (§7 Phase 8)
+ * ------------------------------------------------------------------ */
+
+export type AssignTaskInput = {
+  readonly taskId: string;
+  /** The whole set: whoever is not named stops being responsible. */
+  readonly userIds: readonly string[];
+  readonly now?: Date;
+};
+
+/**
+ * Who a task belongs to. Anyone named has to be in the workspace — the
+ * composite foreign key would not refuse a user id from another tenant, since
+ * `users` is global — and the event carries the names, so the feed can say
+ * who without a lookup that would answer differently after somebody renamed.
+ */
+export async function assignTask(
+  db: Database,
+  context: TenantContext,
+  input: AssignTaskInput,
+): Promise<Result<{ taskId: string }, AssignFailure>> {
+  if (!can(context, "write-task")) return refused("forbidden", context.role);
+
+  const now = input.now ?? new Date();
+  const userIds = [...new Set(input.userIds)];
+
+  return db.transaction(async (tx) => {
+    const task = await findTask(tx, context, input.taskId);
+    if (!task) return refused("not-found", input.taskId);
+
+    const members =
+      userIds.length === 0
+        ? []
+        : await tx
+            .select({ userId: users.id, name: users.name })
+            .from(workspaceMembers)
+            .innerJoin(users, eq(users.id, workspaceMembers.userId))
+            .where(
+              and(
+                eq(workspaceMembers.workspaceId, context.workspaceId),
+                inArray(workspaceMembers.userId, userIds),
+              ),
+            );
+    const stranger = userIds.find((id) => !members.some((member) => member.userId === id));
+    if (stranger) return refused("not-a-member", stranger);
+
+    await replaceAssignees(tx, context, task.id, userIds);
+
+    await emit(tx, {
+      workspaceId: context.workspaceId,
+      type: "task.assigned",
+      payload: {
+        taskId: task.id,
+        projectId: task.projectId,
+        userIds,
+        names: userIds.map((id) => members.find((member) => member.userId === id)?.name ?? ""),
+      },
+      dedupeKey: `task.assigned:${task.id}:${now.getTime()}`,
+      actorKind: "user",
+      actorId: context.userId,
+    });
 
     return ok({ taskId: task.id });
   });

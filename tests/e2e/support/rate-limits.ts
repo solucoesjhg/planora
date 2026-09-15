@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { databaseUrl } from "./database";
 
 /**
  * The rate limiter is real and stays on in every environment (§7 Phase 10), so
@@ -7,10 +8,7 @@ import postgres from "postgres";
  * test in production is the rule running here.
  */
 export async function clearRateLimits(): Promise<void> {
-  const url = process.env["DATABASE_URL"];
-  if (!url) return;
-
-  const sql = postgres(url, { prepare: false, max: 1, onnotice: () => {} });
+  const sql = postgres(databaseUrl(), { prepare: false, max: 1, onnotice: () => {} });
   try {
     await sql`truncate table rate_limits`;
   } catch {

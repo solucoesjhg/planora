@@ -261,3 +261,36 @@ export async function pendingInvitations(
     );
 }
 
+
+/* ------------------------------------------------------------------ *
+ * The Danger Zone (§6.2, §7 Phase 8)
+ * ------------------------------------------------------------------ */
+
+export type DeleteWorkspaceFailure = "forbidden" | "not-found" | "mismatch";
+
+/**
+ * The whole workspace, gone: projects, tasks, files' rows, members,
+ * invitations, events — every table hangs off `workspaces.id` with a cascade.
+ * Only the owner may, and only by typing the workspace's name: the check is
+ * here, not only in the dialog, because a Server Action is a URL. The person
+ * keeps their account; the next request repairs them a fresh personal
+ * workspace, the way signup does.
+ */
+export async function deleteWorkspace(
+  db: Database,
+  context: TenantContext,
+  confirmation: string,
+): Promise<Result<{ workspaceId: string }, DeleteWorkspaceFailure>> {
+  if (!can(context, "delete-workspace")) return refused("forbidden", context.role);
+
+  const [workspace] = await db
+    .select({ id: workspaces.id, name: workspaces.name })
+    .from(workspaces)
+    .where(eq(workspaces.id, context.workspaceId))
+    .limit(1);
+  if (!workspace) return refused("not-found", context.workspaceId);
+  if (confirmation.trim() !== workspace.name) return refused("mismatch");
+
+  await db.delete(workspaces).where(eq(workspaces.id, workspace.id));
+  return ok({ workspaceId: workspace.id });
+}

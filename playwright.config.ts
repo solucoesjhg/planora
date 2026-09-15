@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { databaseUrl } from "./tests/e2e/support/database";
 
 const port = 3000;
 
@@ -27,9 +28,7 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 300_000,
     env: {
-      DATABASE_URL:
-        process.env.DATABASE_URL ??
-        "postgresql://postgres:postgres@127.0.0.1:54322/planora_dev",
+      DATABASE_URL: databaseUrl(),
       MAILPIT_URL: process.env.MAILPIT_URL ?? "http://127.0.0.1:8025",
       BETTER_AUTH_URL: `http://localhost:${port}`,
       // The gallery is the subject of the shell tests, and they run against a

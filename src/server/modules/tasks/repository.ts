@@ -17,6 +17,7 @@ import {
   projects,
   taskChecklistItems,
   taskComments,
+  taskAssignees,
   taskDependencies,
   taskPhaseHistory,
   tasks,
@@ -43,6 +44,7 @@ export type TaskDocument = {
   readonly blocks: readonly { taskId: string; title: string; number: number }[];
   readonly comments: readonly (CommentRow & { authorName: string })[];
   readonly files: readonly AttachmentRow[];
+  readonly assignees: readonly Assignee[];
   readonly history: readonly {
     at: Date;
     fromPhase: string | null;
@@ -50,6 +52,8 @@ export type TaskDocument = {
     columnName: string | null;
   }[];
 };
+
+export type Assignee = { readonly userId: string; readonly name: string };
 
 const alive = (context: TenantContext) =>
   and(eq(tasks.workspaceId, context.workspaceId), isNull(tasks.deletedAt));
@@ -91,6 +95,7 @@ export async function loadTaskDocument(
     comments,
     files,
     history,
+    assignees,
   ] = await Promise.all([
     executor
       .select({ id: projects.id, name: projects.name })
@@ -231,11 +236,74 @@ export async function loadTaskDocument(
         ),
       )
       .orderBy(desc(taskPhaseHistory.at)),
+
+    assigneesOf(executor, context, [taskId]).then((map) => map.get(taskId) ?? []),
   ]);
 
   if (!project || !column) return null;
 
-  return { task, project, column, checklist, dependsOn, blocks, comments, files, history };
+  return {
+    task,
+    project,
+    column,
+    checklist,
+    dependsOn,
+    blocks,
+    comments,
+    files,
+    history,
+    assignees,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Assignees (§7 Phase 8) — `task_assignees` has waited since Phase 2
+ * ------------------------------------------------------------------ */
+
+/** Who each of these tasks belongs to, by task; a task with nobody is absent. */
+export async function assigneesOf(
+  executor: Executor,
+  context: TenantContext,
+  taskIds: readonly string[],
+): Promise<Map<string, Assignee[]>> {
+  const map = new Map<string, Assignee[]>();
+  if (taskIds.length === 0) return map;
+
+  const rows = await executor
+    .select({ taskId: taskAssignees.taskId, userId: users.id, name: users.name })
+    .from(taskAssignees)
+    .innerJoin(users, eq(users.id, taskAssignees.userId))
+    .where(
+      and(
+        eq(taskAssignees.workspaceId, context.workspaceId),
+        inArray(taskAssignees.taskId, [...taskIds]),
+      ),
+    )
+    .orderBy(asc(taskAssignees.createdAt), asc(users.name));
+
+  for (const row of rows) {
+    map.set(row.taskId, [...(map.get(row.taskId) ?? []), { userId: row.userId, name: row.name }]);
+  }
+  return map;
+}
+
+/** The whole set at once: what is not named is no longer responsible. */
+export async function replaceAssignees(
+  executor: Executor,
+  context: TenantContext,
+  taskId: string,
+  userIds: readonly string[],
+): Promise<void> {
+  await executor
+    .delete(taskAssignees)
+    .where(
+      and(eq(taskAssignees.workspaceId, context.workspaceId), eq(taskAssignees.taskId, taskId)),
+    );
+
+  if (userIds.length === 0) return;
+  await executor.insert(taskAssignees).values(
+    userIds.map((userId) => ({ workspaceId: context.workspaceId, taskId, userId })),
+  );
 }
 
 /* ------------------------------------------------------------------ *

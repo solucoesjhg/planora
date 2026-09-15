@@ -1,47 +1,80 @@
-import { FolderKanban } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
-import { Badge } from "@/components/ui/badge";
-import { EmptyState } from "@/components/ui/empty-state";
-import { requireWorkspace } from "@/server/auth/dal";
+import { ActivityFeed } from "@/features/dashboard/activity-feed";
+import { DistributionChart } from "@/features/dashboard/distribution-chart";
+import { PortfolioPanel } from "@/features/dashboard/portfolio-panel";
+import { ProjectRows } from "@/features/dashboard/project-rows";
 import { AccountBar } from "@/features/workspace/account-bar";
+import { requireWorkspace } from "@/server/auth/dal";
+import { getDatabase } from "@/server/db/client";
+import { dispatchSoon } from "@/server/events/dispatch-soon";
+import { loadDashboard } from "@/server/modules/dashboard/view";
 
-// The real panel arrives in Phase 8. What this proves today is that the DAL
-// resolves a session into a tenant context, and that a workspace exists the
-// moment an account does.
+/**
+ * The multi-project panel (DEVELOPMENT_PLAN.md §7 Phase 8): every active
+ * project with its progress and verdict, where the work sits, what happened
+ * last, and — in the right pane — who needs attention first.
+ */
 export default async function DashboardPage() {
   const workspace = await requireWorkspace();
+  const now = new Date();
+
+  // Reading the dashboard evaluates every active project, which writes each
+  // one's row for today (§3.5); a verdict that moved is announced.
+  const dashboard = await loadDashboard(getDatabase(), workspace, now);
+  if (dashboard.changed) dispatchSoon();
+
+  const openTasks = dashboard.projects.reduce((sum, project) => sum + project.openTasks, 0);
+  const blockedTasks = dashboard.projects.reduce(
+    (sum, project) => sum + project.blockedTasks,
+    0,
+  );
 
   return (
     <AppShell
       title="Painel"
       account={<AccountBar />}
-      panelTitle="Contexto"
-      panel={<ContextPanel role={workspace.role} />}
+      panelTitle="Portfólio"
+      panel={<PortfolioPanel dashboard={dashboard} role={workspace.role} />}
     >
-      <div className="flex max-w-3xl flex-col gap-6">
-        <EmptyState
-          icon={FolderKanban}
-          title="Nenhum projeto ainda"
-          description="Projetos, quadro e saúde chegam nas fases 5 a 8. O espaço de trabalho já existe e é seu."
-        />
+      <div className="flex max-w-4xl flex-col gap-8">
+        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="dashboard-totals">
+          <Total label="Em andamento" value={dashboard.projects.length} />
+          <Total label="Concluídos" value={dashboard.completedProjects} />
+          <Total label="Tarefas abertas" value={openTasks} />
+          <Total label="Travadas" value={blockedTasks} tone={blockedTasks > 0 ? "warn" : "plain"} />
+        </dl>
+
+        <ProjectRows projects={dashboard.projects} now={now} />
+
+        <DistributionChart counts={dashboard.distribution} />
+
+        <ActivityFeed entries={dashboard.activity} now={now} />
       </div>
     </AppShell>
   );
 }
 
-function ContextPanel({ role }: { role: string }) {
+function Total({
+  label,
+  value,
+  tone = "plain",
+}: {
+  label: string;
+  value: number;
+  tone?: "plain" | "warn";
+}) {
   return (
-    <div className="flex flex-col gap-3">
-      <p className="text-[11px] tracking-[0.12em] text-subtle uppercase">
-        Espaço de trabalho
-      </p>
-      <div className="flex items-center justify-between gap-2 text-[13px] text-secondary">
-        Seu papel
-        <Badge tone="neutral">{role}</Badge>
-      </div>
-      <p className="text-xs text-subtle">
-        Progresso, saúde e gargalos aparecem aqui quando houver projeto.
-      </p>
+    <div className="flex flex-col gap-0.5 rounded-card border border-line bg-card p-3">
+      <dt className="text-[11px] tracking-[0.12em] text-subtle uppercase">{label}</dt>
+      <dd
+        className={
+          tone === "warn"
+            ? "pln-display text-2xl text-danger"
+            : "pln-display text-2xl text-primary"
+        }
+      >
+        {value}
+      </dd>
     </div>
   );
 }

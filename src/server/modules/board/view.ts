@@ -17,9 +17,11 @@ import type { Executor } from "@/server/db/client";
 import {
   boardColumns,
   projects,
+  taskAssignees,
   taskChecklistItems,
   taskDependencies,
   tasks,
+  users,
 } from "@/server/db/schema";
 
 export type BoardColumnView = {
@@ -42,6 +44,7 @@ export type BoardTaskView = {
   readonly enteredColumnAt: string;
   readonly checklist: { readonly total: number; readonly done: number };
   readonly dependsOn: readonly string[];
+  readonly assignees: readonly { readonly userId: string; readonly name: string }[];
 };
 
 export type BoardView = {
@@ -77,7 +80,7 @@ export async function loadBoardView(
     isNull(tasks.deletedAt),
   );
 
-  const [columnRows, taskRows, checklistRows, dependencyRows] = await Promise.all([
+  const [columnRows, taskRows, checklistRows, dependencyRows, assigneeRows] = await Promise.all([
     executor
       .select({
         id: boardColumns.id,
@@ -111,7 +114,22 @@ export async function loadBoardView(
       .from(taskDependencies)
       .innerJoin(tasks, eq(tasks.id, taskDependencies.taskId))
       .where(scope),
+    executor
+      .select({ taskId: taskAssignees.taskId, userId: users.id, name: users.name })
+      .from(taskAssignees)
+      .innerJoin(tasks, eq(tasks.id, taskAssignees.taskId))
+      .innerJoin(users, eq(users.id, taskAssignees.userId))
+      .where(scope)
+      .orderBy(taskAssignees.createdAt),
   ]);
+
+  const assignees = new Map<string, { userId: string; name: string }[]>();
+  for (const row of assigneeRows) {
+    assignees.set(row.taskId, [
+      ...(assignees.get(row.taskId) ?? []),
+      { userId: row.userId, name: row.name },
+    ]);
+  }
 
   const checklists = new Map(
     checklistRows.map((row) => [row.taskId, { total: row.total, done: row.done }]),
@@ -140,6 +158,7 @@ export async function loadBoardView(
       enteredColumnAt: row.enteredColumnAt.toISOString(),
       checklist: checklists.get(row.id) ?? { total: 0, done: 0 },
       dependsOn: dependencies.get(row.id) ?? [],
+      assignees: assignees.get(row.id) ?? [],
     })),
   };
 }

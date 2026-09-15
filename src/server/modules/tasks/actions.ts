@@ -19,6 +19,7 @@ import {
   addChecklistItem,
   addComment,
   addDependency,
+  assignTask,
   createTask,
   editComment,
   removeChecklistItem,
@@ -26,6 +27,7 @@ import {
   removeDependency,
   setChecklistItem,
   updateTask,
+  type AssignFailure,
   type DependencyFailure,
   type TaskFailure,
 } from "./service";
@@ -96,6 +98,32 @@ export async function updateTaskAction(
     ...(parsed.dueDate === undefined ? {} : { dueDate: parsed.dueDate }),
     ...(parsed.blocked === undefined ? {} : { blocked: parsed.blocked }),
     ...(parsed.blockReason === undefined ? {} : { blockReason: parsed.blockReason }),
+  });
+  if (isRefused(result)) return failure(result);
+
+  refresh(parsed.projectId, parsed.taskId);
+  return { ok: true, value: undefined };
+}
+
+/* ------------------------------------------------------------------ *
+ * Assignees
+ * ------------------------------------------------------------------ */
+
+const assignSchema = z.object({
+  projectId: uuid,
+  taskId: uuid,
+  userIds: z.array(uuid).max(50),
+});
+
+export async function setAssigneesAction(
+  input: z.input<typeof assignSchema>,
+): Promise<ActionResult<AssignFailure>> {
+  const parsed = assignSchema.parse(input);
+  const context = await requireWorkspace();
+
+  const result = await assignTask(getDatabase(), context, {
+    taskId: parsed.taskId,
+    userIds: parsed.userIds,
   });
   if (isRefused(result)) return failure(result);
 

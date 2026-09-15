@@ -11,6 +11,7 @@ import { isBlocked } from "./dependencies";
 import { projectProgress } from "./progress";
 import {
   type BoardContext,
+  type CalendarDate,
   type Phase,
   type Priority,
   type Project,
@@ -24,12 +25,14 @@ import {
   round1,
 } from "./types";
 
-export type Verdict =
-  | "healthy"
-  | "attention"
-  | "at_risk"
-  | "critical"
-  | "insufficient_data";
+export const VERDICTS = [
+  "healthy",
+  "attention",
+  "at_risk",
+  "critical",
+  "insufficient_data",
+] as const;
+export type Verdict = (typeof VERDICTS)[number];
 
 export type DimensionName =
   | "flow"
@@ -367,6 +370,65 @@ function compose(dimensions: Dimensions): number | null {
   }
 
   return round1(score);
+}
+
+/* ------------------------------------------------------------------ *
+ * The trend (§3.5, "A daily snapshot")
+ * ------------------------------------------------------------------ */
+
+export type TrendDirection = "improving" | "worsening" | "steady";
+
+export type Trend = {
+  readonly direction: TrendDirection;
+  /** Calendar days the run has lasted; 0 when there is no run. */
+  readonly days: number;
+};
+
+/** One evaluation, as the history keeps it. */
+export type HistoryPoint = {
+  readonly date: CalendarDate;
+  readonly score: number | null;
+};
+
+/**
+ * "At risk, worsening for 5 days": the run of evaluations, counted back from
+ * the latest, in which the score kept moving the same way. The run is measured
+ * in calendar days between its first and last evaluation — a project read on
+ * Monday and again on Friday, lower, has worsened for four days: nothing in
+ * between showed it rising. A day without a score (insufficient data) ends the
+ * run, and so does a day the score held: steady is a fact, not a direction.
+ */
+export function trendOf(history: readonly HistoryPoint[]): Trend {
+  const points = [...history].sort((a, b) =>
+    a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
+  );
+
+  let direction: TrendDirection = "steady";
+  let runStart: CalendarDate | null = null;
+
+  for (let index = points.length - 1; index > 0; index -= 1) {
+    const latest = points[index]!;
+    const earlier = points[index - 1]!;
+    if (latest.score === null || earlier.score === null) break;
+
+    const step: TrendDirection =
+      latest.score < earlier.score
+        ? "worsening"
+        : latest.score > earlier.score
+          ? "improving"
+          : "steady";
+    if (step === "steady") break;
+    if (direction !== "steady" && step !== direction) break;
+
+    direction = step;
+    runStart = earlier.date;
+  }
+
+  if (runStart === null) return { direction: "steady", days: 0 };
+  return {
+    direction,
+    days: calendarDaysBetween(runStart, points[points.length - 1]!.date),
+  };
 }
 
 /** The band a score falls into, before hysteresis smooths it. */

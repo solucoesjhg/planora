@@ -10,7 +10,12 @@ export type BadgeTone =
   | "high"
   | "medium"
   | "low"
-  | "blocked";
+  | "blocked"
+  | "healthy"
+  | "attention"
+  | "at_risk"
+  | "critical"
+  | "insufficient";
 
 /**
  * A badge is a hairline and a word. Colour arrives as a thin border and a tint,
@@ -27,6 +32,12 @@ const TONES: Record<BadgeTone, string> = {
   medium: "border-priority-medium/40 text-priority-medium bg-priority-medium/8",
   low: "border-priority-low/40 text-priority-low bg-priority-low/8",
   blocked: "border-danger/50 text-danger bg-danger/10",
+  // The verdict (§3.5): the same hairline-and-tint rule, in the semantic colours.
+  healthy: "border-success/40 text-success bg-success/8",
+  attention: "border-warning/40 text-warning bg-warning/8",
+  at_risk: "border-danger/40 text-danger bg-danger/8",
+  critical: "border-danger/60 text-danger bg-danger/14",
+  insufficient: "border-line text-subtle",
 };
 
 export type BadgeProps = ComponentProps<"span"> & {
