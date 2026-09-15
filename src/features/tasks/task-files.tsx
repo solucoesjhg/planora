@@ -32,6 +32,22 @@ const REFUSALS: Record<string, string> = {
 };
 
 /**
+ * What a refusal looks like on the screen. When the store is the problem, the
+ * store's own words go under the title: "Bucket not found" is a diagnosis, and
+ * the person reading it on the first deploy is the one who can act on it.
+ * Nothing secret travels in it — the store's message, not the request.
+ */
+function refusal(
+  result: { reason: string; detail?: string },
+  fallback = "Não deu para enviar o arquivo.",
+): { title: string; description?: string } {
+  const title = REFUSALS[result.reason] ?? fallback;
+  return result.reason === "storage-unavailable" && result.detail
+    ? { title, description: result.detail }
+    : { title };
+}
+
+/**
  * The three steps, shared by the file list and by the editor's image drop.
  *
  * The promise it returns always settles. On the first production deploy the
@@ -51,7 +67,7 @@ export function useUpload(scope: Scope): (file: File) => Promise<string | null> 
     });
 
     if (!ticket.ok) {
-      toast.add({ title: REFUSALS[ticket.reason] ?? "Não deu para enviar o arquivo." });
+      toast.add(refusal(ticket));
       return null;
     }
 
@@ -84,7 +100,7 @@ export function useUpload(scope: Scope): (file: File) => Promise<string | null> 
     });
 
     if (!confirmed.ok) {
-      toast.add({ title: REFUSALS[confirmed.reason] ?? "O envio não foi concluído." });
+      toast.add(refusal(confirmed, "O envio não foi concluído."));
       return null;
     }
 
@@ -177,9 +193,7 @@ export function TaskFiles({ task }: { task: TaskView }) {
                         attachmentId: file.id,
                       });
                       if (!result.ok) {
-                        toast.add({
-                          title: REFUSALS[result.reason] ?? "Não deu para remover o arquivo.",
-                        });
+                        toast.add(refusal(result, "Não deu para remover o arquivo."));
                       }
                     })
                   }
