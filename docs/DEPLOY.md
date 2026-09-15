@@ -64,16 +64,23 @@ offers, and they are not interchangeable:
 | Which | Looks like | What it is for |
 |---|---|---|
 | **Transaction pooler** | `…pooler.supabase.com:6543` | `DATABASE_URL` — what the application uses. Serverless opens many short-lived connections, and the pooler is what survives that |
-| **Direct connection** | `db.<ref>.supabase.co:5432` | `MIGRATION_DATABASE_URL` — migrations only |
+| **Session pooler** | `…pooler.supabase.com:5432` | `MIGRATION_DATABASE_URL` — migrations only. Session mode keeps one backend for the whole connection, which is what drizzle-kit's advisory lock needs |
+
+**Not the *Direct connection*** (`db.<ref>.supabase.co:5432`). It is the right
+kind of connection for migrations, but on the free plan that host answers
+**only over IPv6**, and Vercel's build environment has no IPv6 route: the build
+fails right after "Using 'postgres' driver", before any migration runs, with a
+connection error rather than a database one. The session pooler is the same
+thing reachable over IPv4.
 
 Both contain `[YOUR-PASSWORD]` as a placeholder: replace it with the password
 from step 1.4. If the password has characters like `@`, `#` or `/`, URL-encode
 them, or generate a new password without them.
 
-Migrations need the direct connection because drizzle-kit takes an advisory
-lock and keeps a session; a transaction pooler hands each statement to whichever
-backend is free and holds neither. The build refuses a pooler URL here rather
-than failing halfway through a migration.
+Migrations need a *session*: drizzle-kit takes an advisory lock and keeps it
+for the run, and a transaction pooler hands each statement to whichever backend
+is free and holds neither. The build refuses the transaction pooler here
+(port 6543) rather than failing halfway through a migration.
 
 ---
 
@@ -122,7 +129,7 @@ Add each of these for **Production** (the section below has the full table):
 
 ```
 DATABASE_URL               the pooler string,  port 6543
-MIGRATION_DATABASE_URL     the direct string,  port 5432
+MIGRATION_DATABASE_URL     the session pooler string, port 5432
 BETTER_AUTH_SECRET         32+ random characters
 BETTER_AUTH_URL            https://planora.vercel.app   (fixed in 3.4)
 SUPABASE_URL               https://<ref>.supabase.co
@@ -164,7 +171,7 @@ wrong and the verification email arrives pointing at `localhost`.
 | Name | Value | Notes |
 |---|---|---|
 | `DATABASE_URL` | Supabase **pooler**, port 6543 | the application's connection |
-| `MIGRATION_DATABASE_URL` | Supabase **direct**, port 5432 | drizzle-kit keeps a session and takes a lock; a pooler holds neither. The build refuses a pooler URL here |
+| `MIGRATION_DATABASE_URL` | Supabase **session pooler**, port 5432 | drizzle-kit keeps a session and takes a lock; session mode gives it one backend for the run. The build refuses the transaction pooler (6543); the direct host is IPv6-only and unreachable from Vercel |
 | `BETTER_AUTH_SECRET` | 32+ random characters | signs sessions, verification links and file URLs |
 | `BETTER_AUTH_URL` | the deployment's URL | every emailed link is built from it |
 | `SUPABASE_URL` | project URL | Storage only — the SDK appears in exactly one file |
@@ -188,8 +195,8 @@ not be there next request.
   on the way past;
 - a **production** deployment migrates first, so the schema is in place before
   the code that depends on it is serving;
-- migrations use the direct connection, and the script refuses to run if it is
-  handed the pooler.
+- migrations use the session pooler, and the script refuses to run if it is
+  handed the transaction pooler.
 
 Migrations are never applied by hand from a laptop (§7 Phase 3).
 
