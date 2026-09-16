@@ -42,27 +42,21 @@ export const TaskCardView = forwardRef<
       ref={ref}
       data-testid="task-card"
       data-task-number={`TSK-${task.number}`}
+      data-task-phase={phase}
       data-blocked={blocked ? "true" : "false"}
       className={cn(
-        "relative min-h-[7.125rem] cursor-grab touch-none rounded-card border border-line",
-        "bg-card p-4 shadow-card transition-colors duration-150",
-        "hover:bg-card-hover active:cursor-grabbing",
+        "pln-sheet pln-sheet-hover min-h-[7.125rem] cursor-grab touch-manipulation overflow-hidden",
+        "rounded-card border border-line bg-card p-4 pr-10 md:pr-14",
+        "hover:border-line-strong hover:bg-card-hover active:cursor-grabbing",
         // Drop Catch: the card springs back rather than opening a dialog.
         bouncing && "motion-safe:animate-[pln-bounce_320ms_ease-out]",
         className,
       )}
       {...rest}
     >
-      <span
-        aria-hidden
-        className={cn(
-          "absolute inset-y-3 left-0 w-[2px] rounded-full",
-          phase === "planning" && "bg-phase-planning",
-          phase === "execution" && "bg-phase-execution",
-          phase === "review" && "bg-phase-review",
-          phase === "done" && "bg-phase-done",
-        )}
-      />
+      <span aria-hidden className="pln-phase-rule pln-phase-rule-outer" />
+      <span aria-hidden className="pln-phase-rule pln-phase-rule-inner" />
+      <span aria-hidden className="pln-phase-band" />
 
       <header className="flex items-start justify-between gap-2">
         <span className="font-mono text-[11px] text-subtle">TSK-{task.number}</span>
@@ -79,7 +73,14 @@ export const TaskCardView = forwardRef<
         </Badge>
       </header>
 
-      <p className="mt-1.5 line-clamp-3 text-[14px] text-primary">{task.title}</p>
+      <p
+        className={cn(
+          "mt-1.5 line-clamp-3 text-[15px] leading-snug text-primary",
+          phase === "done" && "text-muted line-through decoration-line",
+        )}
+      >
+        {task.title}
+      </p>
 
       <footer className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted">
         {checklist.total > 0 ? (

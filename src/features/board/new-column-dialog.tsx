@@ -44,9 +44,9 @@ export function NewColumnDialog({ projectId }: { projectId: string }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <Button variant="secondary" size="sm">
+          <Button variant="primary" size="sm" aria-label="Nova coluna">
             <Plus size={14} aria-hidden />
-            Nova coluna
+            <span className="hidden md:inline">Nova coluna</span>
           </Button>
         }
       />

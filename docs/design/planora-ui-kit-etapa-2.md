@@ -85,11 +85,15 @@ Info/Low:             #6F9CB1
 ## Fases do Kanban
 
 ```txt
-Planejamento: #C4A35A
-Execução:     #6F7F8C
-Revisão:      #C4A35A
-Concluído:    #6EA47A
+Planejamento: #6F7F8C   (Stormy Sky)
+Execução:     #A85C3A   (Burnt Sienna)
+Revisão:      #C4A35A   (Muted Gold)
+Concluído:    #6EA47A   (Sage Green)
 ```
+
+> Errata (2026-09-17): a primeira versão dava a Planejamento e a Revisão o
+> mesmo dourado, e metade do quadro ficava indistinguível. As quatro fases
+> agora têm cor própria, todas da paleta acima. Ver `10-decisoes-e-erratas.md`.
 
 A cor da fase deve pintar apenas ícone da coluna, faixa direita do card, divisores internos do card e indicadores pontuais. Não deve pintar o card inteiro.
 

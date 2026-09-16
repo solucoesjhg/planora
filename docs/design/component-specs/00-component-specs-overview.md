@@ -63,7 +63,8 @@ O asset visual do card serve apenas como referência de textura/formato, não co
 
 ## Linguagem visual obrigatória
 
-- Dark matte
+- Dark matte como tema padrão; o tema claro é uma versão em osso quente da
+  mesma paleta, nunca uma inversão (ver `10-decisoes-e-erratas.md`)
 - Textura paper grain discreta
 - Bordas finas e pouco contrastadas
 - Sombras suaves, não “glow”

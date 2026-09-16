@@ -18,7 +18,9 @@ export async function AccountBar() {
 
   return (
     <div className="flex items-center gap-1">
-      <InboxBell context={current} />
+      <span className="pln-account-extra">
+        <InboxBell context={current} />
+      </span>
       <AccountMenu
         name={session.name}
         email={session.email}

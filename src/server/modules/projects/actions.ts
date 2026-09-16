@@ -9,8 +9,10 @@
  */
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { dispatchSoon } from "@/server/events/dispatch-soon";
 import { z } from "zod";
+import { LAST_BOARD_COOKIE } from "@/lib/last-board";
 import { isRefused, type Result } from "@/lib/result";
 import { requireWorkspace } from "@/server/auth/dal";
 import { getDatabase } from "@/server/db/client";
@@ -137,6 +139,11 @@ export async function deleteProjectAction(
   const result = await deleteProject(getDatabase(), context, projectId);
   revalidatePath("/projects");
   dispatchSoon();
+
+  // The rail must not keep pointing "Quadro" at a board that is gone.
+  const jar = await cookies();
+  if (jar.get(LAST_BOARD_COOKIE)?.value === projectId) jar.delete(LAST_BOARD_COOKIE);
+
   return toActionResult(result);
 }
 

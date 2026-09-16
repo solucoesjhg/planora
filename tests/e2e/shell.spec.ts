@@ -58,7 +58,9 @@ for (const scheme of ["dark", "light"] as const) {
 
       await page.getByRole("button", { name: "Abrir navegação" }).click();
       await expect(page.getByRole("dialog")).toBeVisible();
-      await expect(page.getByRole("link", { name: "Projetos" })).toBeVisible();
+      await expect(
+        page.getByRole("dialog").getByRole("link", { name: "Projetos" }),
+      ).toBeVisible();
       expect(await overflowsHorizontally(page)).toBe(false);
 
       await page.keyboard.press("Escape");

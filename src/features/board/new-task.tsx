@@ -7,9 +7,11 @@ import { cn } from "@/lib/cn";
 import { createTaskAction } from "@/server/modules/tasks/actions";
 
 /**
- * A card is written where it will live: at the foot of its column, in a line
- * that stays open for the next one. The document behind it is filled in later,
- * by opening the card.
+ * A card is written where it will live: in its column, from a line at the
+ * head of it that stays open for the next one. The card itself lands at the
+ * foot, in board order; the control stays put so it never drifts as the
+ * column grows. The document behind the card is filled in later, by opening
+ * it.
  */
 export function NewTask({
   projectId,
@@ -55,7 +57,7 @@ export function NewTask({
           setTimeout(() => field.current?.focus(), 0);
         }}
         className={cn(
-          "flex items-center gap-1.5 rounded-card px-2 py-1.5 text-[12px] text-subtle",
+          "flex min-h-11 items-center gap-1.5 rounded-card px-2 py-1.5 text-[12px] text-subtle md:min-h-0",
           "transition-colors hover:bg-card-hover hover:text-secondary",
         )}
       >

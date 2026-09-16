@@ -288,3 +288,424 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/**
+ * The board's paper (board refresh).
+ *
+ * Phase colour reaches the board through one variable, set by the attribute
+ * the column and the card already carry. Nothing below names a phase twice.
+ */
+@layer base {
+  :root {
+    --pln-phase: var(--pln-sienna);
+  }
+
+  [data-column-phase="planning"],
+  [data-task-phase="planning"] {
+    --pln-phase: var(--pln-phase-planning);
+  }
+
+  [data-column-phase="execution"],
+  [data-task-phase="execution"] {
+    --pln-phase: var(--pln-phase-execution);
+  }
+
+  [data-column-phase="review"],
+  [data-task-phase="review"] {
+    --pln-phase: var(--pln-phase-review);
+  }
+
+  [data-column-phase="done"],
+  [data-task-phase="done"] {
+    --pln-phase: var(--pln-phase-done);
+  }
+}
+
+@layer components {
+  /**
+   * A sheet of paper: grain over the surface, light down the face, and two
+   * edges that give it thickness. The grain sits below the content and above
+   * the background, so text never picks it up.
+   */
+  .pln-sheet {
+    position: relative;
+    isolation: isolate;
+    background-image:
+      linear-gradient(180deg, var(--pln-sheet-top), transparent 38%),
+      linear-gradient(0deg, var(--pln-sheet-bottom), transparent 26%);
+    box-shadow: var(--pln-shadow-sheet);
+    transition:
+      box-shadow var(--pln-transition-fast),
+      transform var(--pln-transition-fast),
+      background-color var(--pln-transition-fast);
+  }
+
+  /** The tray the sheets lie in: recessed, with the same grain, softer. */
+  .pln-tray {
+    position: relative;
+    isolation: isolate;
+    box-shadow: var(--pln-shadow-tray);
+  }
+
+  .pln-sheet::before,
+  .pln-tray::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background-image: var(--pln-paper-grain);
+    background-size: var(--pln-paper-grain-size);
+    mix-blend-mode: var(--pln-paper-grain-blend);
+  }
+
+  .pln-sheet::before {
+    opacity: var(--pln-sheet-grain-opacity);
+  }
+
+  .pln-tray::before {
+    opacity: var(--pln-tray-grain-opacity);
+  }
+
+  /* A pointer that can hover gets the lift; a touch screen does not. */
+  @media (hover: hover) {
+    .pln-sheet-hover:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--pln-shadow-sheet-lifted);
+    }
+  }
+
+  /** The card while it is being carried: off the surface, and off square. */
+  .pln-sheet-held {
+    box-shadow: var(--pln-shadow-sheet-held);
+    transform: rotate(-1.5deg);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pln-sheet {
+      transition: none;
+    }
+
+    .pln-sheet-hover:hover {
+      transform: none;
+    }
+
+    .pln-sheet-held {
+      transform: none;
+    }
+  }
+
+  /**
+   * Where a column states its phase. The cap and the wash carry the colour;
+   * the dot is the legend, and it is large enough to read at a glance.
+   */
+  /**
+   * The column's phase, as one fall of colour: full strength at the very top
+   * edge, then a continuous decay into the tray. No rule, no band, no step —
+   * the stops are placed in pixels so the curve is the same whatever the
+   * header measures, and it is steep early so the header text sits on a tint
+   * rather than on the colour itself.
+   *
+   * It sits at z-index -1 inside the tray's own stacking context: above the
+   * column's background, below every piece of content.
+   */
+  .pln-phase-veil {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    z-index: -1;
+    height: 88px;
+    pointer-events: none;
+    background-image: linear-gradient(
+      180deg,
+      var(--pln-phase) 0,
+      color-mix(in oklab, var(--pln-phase) 62%, transparent) 4px,
+      color-mix(in oklab, var(--pln-phase) 34%, transparent) 12px,
+      color-mix(in oklab, var(--pln-phase) 17%, transparent) 26px,
+      color-mix(in oklab, var(--pln-phase) 8%, transparent) 44px,
+      color-mix(in oklab, var(--pln-phase) 3%, transparent) 64px,
+      transparent 88px
+    );
+  }
+
+  .pln-phase-dot {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 999px;
+    background: var(--pln-phase);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--pln-phase) 20%, transparent);
+  }
+
+  .pln-phase-count {
+    display: inline-grid;
+    place-items: center;
+    min-width: 1.75rem;
+    height: 1.75rem;
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in oklab, var(--pln-phase) 28%, transparent);
+    background: color-mix(in oklab, var(--pln-phase) 12%, transparent);
+  }
+
+  /**
+   * The card's right margin, from the v1 card spec: a band of phase colour at
+   * the edge, and two rules drawn in from it. The card holds 56px clear so no
+   * content ever runs into them.
+   */
+  .pln-phase-band {
+    position: absolute;
+    inset-block: 0;
+    right: 0;
+    width: 3px;
+    background: var(--pln-phase);
+    opacity: 0.85;
+    pointer-events: none;
+  }
+
+  .pln-phase-rule {
+    position: absolute;
+    inset-block: 0;
+    width: 1px;
+    background: var(--pln-phase);
+    pointer-events: none;
+  }
+
+  /* The outer rule carries; the inner one is barely a suggestion. */
+  .pln-phase-rule-outer {
+    right: 42px;
+    opacity: 0.55;
+  }
+
+  .pln-phase-rule-inner {
+    right: 36px;
+    opacity: 0.22;
+  }
+}
+
+/**
+ * The strip's edges. A soft fade on whichever side has more to see, so the
+ * hover-to-scroll zone is discoverable, drawn on the frame rather than the
+ * strip so it stays put while the strip moves. The ground's own colour, so it
+ * reads as depth, not as a bar. It stops short of the scrollbar.
+ */
+@layer components {
+  /* Only where a pointer can hover: the fades announce the hover zone, and on
+     a touch screen there is no such zone. Same query as use-edge-scroll.ts. */
+  @media (hover: hover) and (pointer: fine) {
+  .pln-scroll-frame::before,
+  .pln-scroll-frame::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 1rem;
+    z-index: 1;
+    width: 36px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--pln-transition-fast);
+  }
+
+  .pln-scroll-frame::before {
+    left: 0;
+    background: linear-gradient(90deg, var(--pln-bg-app), transparent);
+  }
+
+  .pln-scroll-frame::after {
+    right: 0;
+    background: linear-gradient(270deg, var(--pln-bg-app), transparent);
+  }
+
+  .pln-scroll-frame[data-scroll-left="true"]::before,
+  .pln-scroll-frame[data-scroll-right="true"]::after {
+    opacity: 1;
+  }
+  }
+}
+
+/**
+ * The kit's composition (docs/design, specs 02 to 05), as component classes.
+ * Colour still arrives only through tokens.
+ */
+@layer components {
+  /* The vignette the kit draws over the ground: darker at the edges, a
+     little more on the right, so the centre reads as lit. */
+  .pln-ground::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(
+        circle at 50% 40%,
+        transparent 0%,
+        transparent 54%,
+        var(--pln-vignette-centre) 100%
+      ),
+      linear-gradient(
+        90deg,
+        var(--pln-vignette-left),
+        transparent 18%,
+        transparent 82%,
+        var(--pln-vignette-right)
+      );
+  }
+
+  /* The rail's item: 58px tall, 15px type, and the active one on a dark
+     sienna wash rather than a bright orange. */
+  .pln-nav-item {
+    min-height: var(--pln-nav-item-h);
+    font-size: 15px;
+  }
+
+  .pln-nav-item[aria-current="page"] {
+    background: var(--pln-nav-active-bg);
+    color: var(--pln-nav-active-fg);
+    box-shadow: inset 0 1px 0 var(--pln-nav-active-edge);
+  }
+
+  .pln-brand {
+    color: var(--pln-brand);
+  }
+
+  /* A thin scrollbar in the ground's own tones, on both engines. */
+  .pln-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--pln-scrollbar-thumb) transparent;
+  }
+
+  .pln-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .pln-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .pln-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--pln-scrollbar-thumb);
+    border-radius: 999px;
+  }
+
+  .pln-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--pln-scrollbar-thumb-hover);
+  }
+
+  /* The card's blocked edge, from the card spec's visual states. */
+  .pln-sheet[data-blocked="true"] {
+    border-color: var(--pln-card-blocked-border);
+  }
+
+  /*
+   * The progress donut (spec 04): a ring whose segments are set inline as
+   * percentages — done, then the part progress lost to what is stalled, then
+   * the track — with the number in the well.
+   */
+  .pln-donut {
+    width: var(--pln-donut-size);
+    height: var(--pln-donut-size);
+    padding: var(--pln-donut-ring);
+    border-radius: 999px;
+    background: conic-gradient(
+      from 210deg,
+      var(--pln-sage) 0 var(--pln-donut-done, 0%),
+      var(--pln-sienna) var(--pln-donut-done, 0%) var(--pln-donut-raw, 0%),
+      var(--pln-donut-track) var(--pln-donut-raw, 0%) 100%
+    );
+    box-shadow: var(--pln-shadow-panel);
+  }
+
+  .pln-donut-well {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background: var(--pln-donut-well);
+    box-shadow: inset 0 0 20px var(--pln-donut-well-shade);
+  }
+}
+
+/**
+ * The phone (Direction A, docs/design decisions): one phase at a time, tabs
+ * to move between them, a bottom bar, a compact header. Everything here is
+ * gated below md; the desktop shell is untouched.
+ */
+@layer base {
+  [data-tab-phase="planning"] {
+    --pln-phase: var(--pln-phase-planning);
+  }
+  [data-tab-phase="execution"] {
+    --pln-phase: var(--pln-phase-execution);
+  }
+  [data-tab-phase="review"] {
+    --pln-phase: var(--pln-phase-review);
+  }
+  [data-tab-phase="done"] {
+    --pln-phase: var(--pln-phase-done);
+  }
+}
+
+@layer components {
+  /* The bottom bar's active item wears the rail's wash. */
+  .pln-tab-item[aria-current="page"] {
+    background: var(--pln-nav-active-bg);
+    color: var(--pln-nav-active-fg);
+    box-shadow: inset 0 1px 0 var(--pln-nav-active-edge);
+  }
+
+  /* A phase tab: the phase's dot and name; the open one on a tint with a
+     rule underneath. `is-over` is a card being carried across it. */
+  .pln-phase-tab {
+    border-bottom: 2px solid transparent;
+    transition:
+      background-color var(--pln-transition-fast),
+      border-color var(--pln-transition-fast);
+  }
+
+  .pln-phase-tab[aria-selected="true"] {
+    border-bottom-color: var(--pln-phase);
+    background: color-mix(in oklab, var(--pln-phase) 14%, transparent);
+  }
+
+  .pln-phase-tab.is-over {
+    background: color-mix(in oklab, var(--pln-phase) 26%, transparent);
+  }
+
+  .pln-phase-tab-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: var(--pln-phase);
+  }
+
+  .pln-account-extra {
+    display: inline-flex;
+  }
+
+  @media (max-width: 767px) {
+    /* The header keeps only the avatar on a phone; the bell and the theme
+       toggle stay reachable in the drawer's copy of the account bar. */
+    .pln-account-compact .pln-account-extra {
+      display: none;
+    }
+
+    /* On a phone the tab is the column's header and the ground is its tray:
+       no box, no grain of its own, no veil. */
+    .pln-tray::before {
+      display: none;
+    }
+
+    /* The card's right margin, scaled to a phone-width card: 40px, with the
+       rules drawn in by the same proportion. */
+    .pln-phase-rule-outer {
+      right: 30px;
+    }
+
+    .pln-phase-rule-inner {
+      right: 24px;
+    }
+  }
+}

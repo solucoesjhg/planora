@@ -43,8 +43,8 @@
       "info": "#6F9CB1"
     },
     "phase": {
-      "planning": "#C4A35A",
-      "execution": "#6F7F8C",
+      "planning": "#6F7F8C",
+      "execution": "#A85C3A",
       "review": "#C4A35A",
       "done": "#6EA47A"
     },

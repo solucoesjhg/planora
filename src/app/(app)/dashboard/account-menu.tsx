@@ -36,7 +36,9 @@ export function AccountMenu({
 
   return (
     <div className="flex items-center gap-1">
-      <ThemeToggle />
+      <span className="pln-account-extra">
+        <ThemeToggle />
+      </span>
 
       <Popover>
         <PopoverTrigger

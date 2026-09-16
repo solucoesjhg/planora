@@ -19,7 +19,7 @@ const VARIANTS: Record<ButtonVariant, string> = {
 
 const SIZES: Record<ButtonSize, string> = {
   sm: "h-8 gap-1.5 px-3 text-[13px]",
-  md: "h-10 gap-2 px-4 text-sm",
+  md: "h-11 gap-2 px-4 text-sm",
 };
 
 export type ButtonProps = ComponentProps<"button"> & {
