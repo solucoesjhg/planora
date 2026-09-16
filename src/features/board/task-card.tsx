@@ -45,9 +45,9 @@ export const TaskCardView = forwardRef<
       data-task-phase={phase}
       data-blocked={blocked ? "true" : "false"}
       className={cn(
-        "pln-sheet pln-sheet-hover min-h-[7.125rem] cursor-grab touch-none overflow-hidden",
-        "rounded-card border border-line bg-card p-4 pr-14",
-        "hover:bg-card-hover active:cursor-grabbing",
+        "pln-sheet pln-sheet-hover min-h-[7.125rem] cursor-grab touch-manipulation overflow-hidden",
+        "rounded-card border border-line bg-card p-4 pr-10 md:pr-14",
+        "hover:border-line-strong hover:bg-card-hover active:cursor-grabbing",
         // Drop Catch: the card springs back rather than opening a dialog.
         bouncing && "motion-safe:animate-[pln-bounce_320ms_ease-out]",
         className,
@@ -73,7 +73,14 @@ export const TaskCardView = forwardRef<
         </Badge>
       </header>
 
-      <p className="mt-1.5 line-clamp-3 text-[14px] text-primary">{task.title}</p>
+      <p
+        className={cn(
+          "mt-1.5 line-clamp-3 text-[15px] leading-snug text-primary",
+          phase === "done" && "text-muted line-through decoration-line",
+        )}
+      >
+        {task.title}
+      </p>
 
       <footer className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted">
         {checklist.total > 0 ? (

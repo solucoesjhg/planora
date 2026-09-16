@@ -3,7 +3,8 @@
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   pointerWithin,
   useDroppable,
   useSensor,
@@ -17,6 +18,7 @@ import { canMoveTask, keyBetween, type MoveRefusal } from "@/domain/kanban";
 import { isBlocked } from "@/domain/dependencies";
 import { byBoardOrder } from "@/domain/types";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/cn";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { moveTaskAction } from "@/server/modules/board/actions";
@@ -26,11 +28,17 @@ import {
   type BoardTaskView,
   type BoardView,
 } from "@/server/modules/board/view";
-import { BoardColumn } from "./board-column";
+import { BoardColumn, ColumnMenu } from "./board-column";
+import { NewColumnDialog } from "./new-column-dialog";
+import { LAST_BOARD_COOKIE, LAST_BOARD_MAX_AGE } from "@/lib/last-board";
+import { useEdgeScroll } from "./use-edge-scroll";
 import { NewTask } from "./new-task";
 import { TaskCard, TaskCardView } from "./task-card";
 
 export type BoardProps = { readonly view: BoardView };
+
+/** A phase tab is a drop target too; its id wears this so it is never a column's. */
+const TAB_PREFIX = "tab:";
 
 type Move = {
   readonly taskId: string;
@@ -67,8 +75,68 @@ export function Board({ view }: BoardProps) {
   } | null>(null);
 
   const scroller = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLDivElement>(null);
+  useEdgeScroll(scroller, frame, { enabled: dragging === null });
+
+  /**
+   * On a phone the strip shows one column at a time and snaps between them;
+   * the tabs above say which, and pick one. Which one is read from the
+   * strip's own scroll position, so a swipe and a tap agree.
+   */
+  const [activeColumn, setActiveColumn] = useState(0);
+  useEffect(() => {
+    const strip = scroller.current;
+    if (!strip) return;
+    let raf = 0;
+
+    const measure = () => {
+      raf = 0;
+      let best = 0;
+      let nearest = Number.POSITIVE_INFINITY;
+      Array.from(strip.children).forEach((child, index) => {
+        const distance = Math.abs((child as HTMLElement).offsetLeft - strip.scrollLeft);
+        if (distance < nearest) {
+          nearest = distance;
+          best = index;
+        }
+      });
+      setActiveColumn(best);
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(measure);
+    };
+
+    strip.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      strip.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  function showColumn(index: number): void {
+    const strip = scroller.current;
+    const child = strip?.children[index] as HTMLElement | undefined;
+    if (!strip || !child) return;
+    strip.scrollTo({ left: child.offsetLeft, behavior: "smooth" });
+  }
+
+  // Where the rail's "Quadro" goes next time: here. See lib/last-board.ts.
+  useEffect(() => {
+    document.cookie = `${LAST_BOARD_COOKIE}=${view.project.id}; path=/; max-age=${LAST_BOARD_MAX_AGE}; samesite=lax`;
+  }, [view.project.id]);
+
+  /**
+   * Two ways to pick a card up, because a finger and a mouse mean different
+   * things by "move". A mouse drags once it has travelled 5px. A finger that
+   * moves at once is scrolling the strip — most of a column is cards, so
+   * that has to work from on top of one — and only a finger that holds still
+   * for a quarter of a second is picking up. The card allows panning
+   * (`touch-manipulation`) so the browser can scroll; once a drag is on,
+   * dnd-kit cancels the browser's move events itself.
+   */
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   );
 
   // Where this project's board was left, per project, for this tab only.
@@ -120,7 +188,11 @@ export function Board({ view }: BoardProps) {
 
     const overId = String(over.id);
     const overTask = tasks.find((each) => each.id === overId);
-    const toColumnId = overTask ? overTask.columnId : overId;
+    const toColumnId = overTask
+      ? overTask.columnId
+      : overId.startsWith(TAB_PREFIX)
+        ? overId.slice(TAB_PREFIX.length)
+        : overId;
 
     const from = context.columns.find((column) => column.id === task.columnId);
     const to = context.columns.find((column) => column.id === toColumnId);
@@ -218,12 +290,30 @@ export function Board({ view }: BoardProps) {
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
     >
+      <PhaseTabs
+        columns={columns}
+        counts={new Map(columns.map((column) => [column.id, tasksOf(column.id).length]))}
+        active={activeColumn}
+        onPick={showColumn}
+        projectId={view.project.id}
+      />
+
       <div
-        ref={scroller}
-        data-testid="board-scroller"
-        className="flex min-h-0 flex-1 gap-(--pln-column-gap) overflow-x-auto pb-4"
+        ref={frame}
+        data-testid="board-frame"
+        className="pln-scroll-frame relative flex min-h-0 flex-1 flex-col"
       >
-        {columns.map((column) => (
+        <div
+          ref={scroller}
+          data-testid="board-scroller"
+          className={cn(
+            "pln-scrollbar flex min-h-0 flex-1 items-start gap-(--pln-column-gap) overflow-x-auto pb-4",
+            "md:snap-none md:items-stretch",
+            // Snapping fights the auto-scroll that carries a card across.
+            dragging === null ? "snap-x snap-mandatory" : "snap-none",
+          )}
+        >
+          {columns.map((column) => (
           <DroppableColumn
             key={column.id}
             column={column}
@@ -237,6 +327,7 @@ export function Board({ view }: BoardProps) {
             bouncing={bouncing}
           />
         ))}
+        </div>
       </div>
 
       <DragOverlay dropAnimation={null}>
@@ -285,6 +376,104 @@ export function Board({ view }: BoardProps) {
   );
 }
 
+/**
+ * The phone's way between columns: one tab per phase, the open one on its
+ * colour. A tab is also a drop target — carrying a card onto "Concluído"
+ * moves it there — which is how a card changes column when only one column
+ * is on screen. Folded away from md up, where every column is in view.
+ */
+function PhaseTabs({
+  columns,
+  counts,
+  active,
+  onPick,
+  projectId,
+}: {
+  columns: readonly BoardColumnView[];
+  counts: ReadonlyMap<string, number>;
+  active: number;
+  onPick: (index: number) => void;
+  projectId: string;
+}) {
+  const current = columns[active];
+
+  // The row of tabs can be wider than the phone; the open one stays in view.
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const tab = list.current?.children[active] as HTMLElement | undefined;
+    tab?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
+  }, [active]);
+
+  return (
+    <div className="flex items-center gap-2 border-b border-hairline md:hidden">
+      <div
+        ref={list}
+        role="tablist"
+        aria-label="Fases"
+        data-testid="phase-tabs"
+        className="pln-scrollbar flex min-w-0 flex-1 gap-0.5 overflow-x-auto"
+      >
+        {columns.map((column, index) => (
+          <PhaseTab
+            key={column.id}
+            column={column}
+            count={counts.get(column.id) ?? 0}
+            active={index === active}
+            onPick={() => onPick(index)}
+          />
+        ))}
+      </div>
+
+      {/* The open column's own controls, since its header is folded away. */}
+      <div className="flex shrink-0 items-center gap-1 pr-1">
+        <NewColumnDialog projectId={projectId} />
+        {current ? (
+          <ColumnMenu
+            column={current}
+            projectId={projectId}
+            immutable={current.phase === "planning" || current.phase === "done"}
+            empty={(counts.get(current.id) ?? 0) === 0}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function PhaseTab({
+  column,
+  count,
+  active,
+  onPick,
+}: {
+  column: BoardColumnView;
+  count: number;
+  active: boolean;
+  onPick: () => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `${TAB_PREFIX}${column.id}` });
+
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      role="tab"
+      aria-selected={active}
+      data-tab-phase={column.phase}
+      onClick={onPick}
+      className={cn(
+        "pln-phase-tab flex h-11 shrink-0 items-center gap-1.5 rounded-t-control px-2.5 text-[12px] whitespace-nowrap",
+        active ? "text-primary" : "text-secondary",
+        isOver && "is-over",
+      )}
+    >
+      <span aria-hidden className="pln-phase-tab-dot shrink-0" />
+      {column.name}
+      {active ? <span className="font-mono text-[11px] text-subtle">{count}</span> : null}
+    </button>
+  );
+}
+
 function DroppableColumn({
   column,
   projectId,
@@ -307,7 +496,7 @@ function DroppableColumn({
       projectId={projectId}
       count={tasks.length}
       isOver={isOver}
-      footer={<NewTask projectId={projectId} columnId={column.id} />}
+      action={<NewTask projectId={projectId} columnId={column.id} />}
     >
       <SortableContext
         items={tasks.map((task) => task.id)}

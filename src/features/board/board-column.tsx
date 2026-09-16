@@ -20,11 +20,12 @@ export type BoardColumnProps = {
   readonly count: number;
   readonly isOver?: boolean;
   readonly children: ReactNode;
-  readonly footer?: ReactNode;
+  /** The column's own control — "Nova tarefa" — pinned above the cards. */
+  readonly action?: ReactNode;
 };
 
 export const BoardColumn = forwardRef<HTMLElement, BoardColumnProps>(
-  function BoardColumn({ column, projectId, count, isOver, children, footer }, ref) {
+  function BoardColumn({ column, projectId, count, isOver, children, action }, ref) {
     const immutable = column.phase === "planning" || column.phase === "done";
 
     return (
@@ -34,21 +35,23 @@ export const BoardColumn = forwardRef<HTMLElement, BoardColumnProps>(
         data-column-phase={column.phase}
         data-column-name={column.name}
         className={cn(
-          "pln-tray flex min-w-column flex-1 flex-col overflow-hidden",
+          "pln-tray flex w-full shrink-0 snap-center flex-col overflow-hidden",
+          "md:w-auto md:min-w-column md:flex-1 md:shrink md:snap-align-none",
           "rounded-column border border-line bg-app-soft transition-colors duration-150",
+          "max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:shadow-none",
           isOver && "border-sienna/50",
         )}
       >
-        <span aria-hidden className="pln-phase-veil" />
+        <span aria-hidden className="pln-phase-veil hidden md:block" />
 
-        <header className="flex items-center gap-2.5 px-3 py-2.5">
+        <header className="hidden h-[var(--pln-column-header-h)] items-center gap-2.5 px-4 md:flex">
           <span aria-hidden className="pln-phase-dot shrink-0" />
 
-          <h3 className="min-w-0 flex-1 truncate text-[13px] font-medium text-primary">
+          <h3 className="pln-display min-w-0 flex-1 truncate text-[19px] tracking-[-0.01em] text-primary">
             {column.name}
           </h3>
 
-          <span className="pln-phase-count font-mono text-[11px] text-secondary">
+          <span className="pln-phase-count font-mono text-[12px] text-secondary">
             {count}
           </span>
 
@@ -60,16 +63,23 @@ export const BoardColumn = forwardRef<HTMLElement, BoardColumnProps>(
           />
         </header>
 
-        <div className="flex min-h-24 flex-1 flex-col gap-2.5 overflow-y-auto px-3 pb-3 pt-2.5">
+        {/*
+          Above the cards and outside the strip that scrolls, so it is in the
+          same place on every column and stays there however many cards pile
+          up below it — the foot of a long column is wherever you have
+          scrolled to; the head is always the head.
+        */}
+        {action ? <div className="pt-1 md:px-3 md:pt-3">{action}</div> : null}
+
+        <div className="pln-scrollbar flex min-h-24 flex-1 flex-col gap-3 pb-3 pt-3 md:overflow-y-auto md:px-3">
           {children}
-          {footer}
         </div>
       </section>
     );
   },
 );
 
-function ColumnMenu({
+export function ColumnMenu({
   column,
   projectId,
   immutable,

@@ -41,7 +41,7 @@ export type HealthPanelProps = {
   readonly tasks: ReadonlyMap<string, TaskLabel>;
 };
 
-const VERDICT_TONES: Record<Verdict, BadgeTone> = {
+export const VERDICT_TONES: Record<Verdict, BadgeTone> = {
   healthy: "healthy",
   attention: "attention",
   at_risk: "at_risk",
@@ -81,9 +81,9 @@ export function HealthPanel({ projectId, report, trend, progress, tasks }: Healt
 
   return (
     <div className="flex flex-col gap-5" data-testid="health-panel">
-      <section className="rounded-panel border border-line bg-panel p-4 shadow-panel">
-        <p className="text-[11px] tracking-[0.12em] text-subtle uppercase">Saúde</p>
-        <div className="mt-1.5 flex items-center justify-between gap-2">
+      <section className="rounded-panel border border-line bg-panel p-5 shadow-panel">
+        <h2 className="pln-display text-[19px] text-primary">Saúde</h2>
+        <div className="mt-2 flex items-center justify-between gap-2">
           <Badge tone={VERDICT_TONES[report.verdict]} data-testid="health-verdict">
             {VERDICT_LABELS[report.verdict]}
           </Badge>
@@ -100,14 +100,34 @@ export function HealthPanel({ projectId, report, trend, progress, tasks }: Healt
         </p>
       </section>
 
-      <section className="rounded-panel border border-line bg-panel p-4 shadow-panel">
-        <p className="text-[11px] tracking-[0.12em] text-subtle uppercase">
-          Progresso ajustado
-        </p>
-        <p className="pln-display mt-1 text-3xl text-primary" data-testid="progress-adjusted">
-          {toDisplay(progress.adjusted)}%
-        </p>
-        <p className="mt-1 text-xs text-secondary">
+      <section className="rounded-panel border border-line bg-panel p-5 shadow-panel">
+        <h2 className="pln-display text-[19px] text-primary">Progresso ajustado</h2>
+        {/*
+          Two segments on the ring, both numbers the domain already gave:
+          what is done, then the slice progress lost to what is stalled —
+          the gap between raw and adjusted — and the track for the rest.
+        */}
+        <div
+          className="pln-donut mx-auto mt-4"
+          role="img"
+          aria-label={`Progresso ajustado ${toDisplay(progress.adjusted)}%, bruto ${toDisplay(progress.raw)}%`}
+          style={
+            {
+              "--pln-donut-done": `${toDisplay(progress.adjusted)}%`,
+              "--pln-donut-raw": `${toDisplay(Math.max(progress.raw, progress.adjusted))}%`,
+            } as React.CSSProperties
+          }
+        >
+          <div className="pln-donut-well">
+            <span
+              className="pln-display text-[34px] leading-none text-primary"
+              data-testid="progress-adjusted"
+            >
+              {toDisplay(progress.adjusted)}%
+            </span>
+          </div>
+        </div>
+        <p className="mt-4 text-xs text-secondary">
           Bruto {toDisplay(progress.raw)}% — a diferença é o custo do que está parado.
         </p>
       </section>
@@ -150,10 +170,13 @@ export function HealthPanel({ projectId, report, trend, progress, tasks }: Healt
         </section>
       ) : null}
 
+      <section className="rounded-panel border border-line bg-panel p-5 shadow-panel">
+        <h2 className="pln-display text-[19px] text-primary">Tarefas principais</h2>
+
       {report.topTwo.length > 0 ? (
-        <section className="flex flex-col gap-2" data-testid="health-top-two">
+        <section className="mt-3 flex flex-col gap-2" data-testid="health-top-two">
           <p className="text-[11px] tracking-[0.12em] text-subtle uppercase">Top 2</p>
-          <ul className="flex flex-col gap-2">
+          <ul className="flex flex-col">
             {report.topTwo.map((finding) => (
               <FindingLine
                 key={`${finding.taskId}:${finding.signal}`}
@@ -168,7 +191,7 @@ export function HealthPanel({ projectId, report, trend, progress, tasks }: Healt
       ) : null}
 
       {projectFindings.length > 0 ? (
-        <section className="flex flex-col gap-2">
+        <section className="mt-3 flex flex-col gap-2">
           <p className="text-[11px] tracking-[0.12em] text-subtle uppercase">No projeto</p>
           <ul className="flex flex-col gap-1">
             {projectFindings.map((finding) => (
@@ -180,7 +203,7 @@ export function HealthPanel({ projectId, report, trend, progress, tasks }: Healt
         </section>
       ) : null}
 
-      <section className="flex flex-col gap-2" data-testid="health-bottlenecks">
+      <section className="mt-3 flex flex-col gap-2" data-testid="health-bottlenecks">
         <p className="text-[11px] tracking-[0.12em] text-subtle uppercase">
           Gargalos · {report.bottlenecks.length}
         </p>
@@ -189,7 +212,7 @@ export function HealthPanel({ projectId, report, trend, progress, tasks }: Healt
         ) : rest.length === 0 ? (
           <p className="text-xs text-subtle">Só os dois acima.</p>
         ) : (
-          <ul className="flex flex-col gap-2">
+          <ul className="flex flex-col">
             {rest.map((finding) => (
               <FindingLine
                 key={`${finding.taskId}:${finding.signal}`}
@@ -200,6 +223,7 @@ export function HealthPanel({ projectId, report, trend, progress, tasks }: Healt
             ))}
           </ul>
         )}
+      </section>
       </section>
     </div>
   );
@@ -217,7 +241,7 @@ function FindingLine({
   emphasis?: boolean;
 }) {
   return (
-    <li className="flex items-center justify-between gap-2 border-b border-hairline pb-2 text-[13px]">
+    <li className="flex items-center justify-between gap-2 border-b border-hairline py-2 text-[13px] last:border-b-0 last:pb-0">
       <Link
         href={`/projects/${projectId}/tasks/${finding.taskId}`}
         className={cn(

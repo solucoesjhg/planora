@@ -305,3 +305,92 @@
     inset 0 1px 3px rgba(25, 29, 26, 0.07),
     inset 0 0 0 1px rgba(255, 255, 255, 0.5);
 }
+
+/**
+ * The kit's composition, brought over from docs/design (component specs 02
+ * to 05): the rail item, the column header, the vignette on the ground, the
+ * scrollbar, the donut's track, and the card's blocked edge. Each has a
+ * light-theme value the dark-only kit never drew; those follow the same rule
+ * as the rest of the light palette — a warm bone version, not an inversion.
+ */
+:root {
+  --pln-nav-item-h: 58px;
+  --pln-column-header-h: 64px;
+  --pln-donut-size: 164px;
+  --pln-donut-ring: 15px;
+}
+
+:root,
+:root[data-theme="dark"] {
+  --pln-nav-active-bg: linear-gradient(
+    90deg,
+    rgba(90, 55, 42, 0.95),
+    rgba(42, 30, 24, 0.72)
+  );
+  --pln-nav-active-fg: #eee5d6;
+  --pln-nav-active-edge: rgba(255, 255, 255, 0.06);
+  --pln-brand: #a85c3a;
+
+  --pln-vignette-centre: rgba(0, 0, 0, 0.22);
+  --pln-vignette-left: rgba(0, 0, 0, 0.1);
+  --pln-vignette-right: rgba(0, 0, 0, 0.16);
+
+  --pln-scrollbar-thumb: rgba(232, 221, 200, 0.16);
+  --pln-scrollbar-thumb-hover: rgba(232, 221, 200, 0.26);
+
+  --pln-donut-track: rgba(255, 255, 255, 0.06);
+  --pln-donut-well: #111411;
+  --pln-donut-well-shade: rgba(0, 0, 0, 0.55);
+
+  --pln-card-blocked-border: rgba(184, 90, 70, 0.26);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --pln-nav-active-bg: linear-gradient(
+      90deg,
+      rgba(143, 74, 43, 0.16),
+      rgba(143, 74, 43, 0.07)
+    );
+    --pln-nav-active-fg: #191d1a;
+    --pln-nav-active-edge: rgba(255, 255, 255, 0.6);
+    --pln-brand: #8f4a2b;
+
+    --pln-vignette-centre: rgba(25, 29, 26, 0.06);
+    --pln-vignette-left: rgba(25, 29, 26, 0.03);
+    --pln-vignette-right: rgba(25, 29, 26, 0.05);
+
+    --pln-scrollbar-thumb: rgba(25, 29, 26, 0.18);
+    --pln-scrollbar-thumb-hover: rgba(25, 29, 26, 0.3);
+
+    --pln-donut-track: rgba(25, 29, 26, 0.08);
+    --pln-donut-well: #fffdf8;
+    --pln-donut-well-shade: rgba(25, 29, 26, 0.08);
+
+    --pln-card-blocked-border: rgba(165, 67, 42, 0.3);
+  }
+}
+
+:root[data-theme="light"] {
+  --pln-nav-active-bg: linear-gradient(
+    90deg,
+    rgba(143, 74, 43, 0.16),
+    rgba(143, 74, 43, 0.07)
+  );
+  --pln-nav-active-fg: #191d1a;
+  --pln-nav-active-edge: rgba(255, 255, 255, 0.6);
+  --pln-brand: #8f4a2b;
+
+  --pln-vignette-centre: rgba(25, 29, 26, 0.06);
+  --pln-vignette-left: rgba(25, 29, 26, 0.03);
+  --pln-vignette-right: rgba(25, 29, 26, 0.05);
+
+  --pln-scrollbar-thumb: rgba(25, 29, 26, 0.18);
+  --pln-scrollbar-thumb-hover: rgba(25, 29, 26, 0.3);
+
+  --pln-donut-track: rgba(25, 29, 26, 0.08);
+  --pln-donut-well: #fffdf8;
+  --pln-donut-well-shade: rgba(25, 29, 26, 0.08);
+
+  --pln-card-blocked-border: rgba(165, 67, 42, 0.3);
+}

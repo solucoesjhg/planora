@@ -93,7 +93,8 @@ SidebarRight
 
 ## Regras
 
-- Não usar painel com fundo claro.
+- Não usar painel com fundo claro no tema escuro. No tema claro os painéis
+  usam `--pln-bg-panel` daquele tema, um osso levemente mais claro que o fundo.
 - Não usar gráfico com cores saturadas.
 - Saúde do projeto deve ser compacta.
 - Tarefas principais devem ter linhas divisórias finas.

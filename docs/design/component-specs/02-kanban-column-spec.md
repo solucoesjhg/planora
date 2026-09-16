@@ -98,7 +98,10 @@ header height: 64px
 ## Regras
 
 - A coluna não deve ter background colorido forte.
-- A cor da fase aparece no ícone e nos cards, não no corpo da coluna.
+- A cor da fase aparece no ícone, nos cards e num único degradê no topo da
+  coluna: cor cheia na aresta superior, caindo de forma contínua até sumir na
+  bandeja, sem faixa sólida e sem linha de cabeçalho. O corpo da coluna abaixo
+  disso continua neutro. (Decisão de 2026-09-16; ver `10-decisoes-e-erratas.md`.)
 - Header deve ser limpo, com título serifado.
 - Lista deve ter scroll próprio.
 - Não usar sombra colorida.
