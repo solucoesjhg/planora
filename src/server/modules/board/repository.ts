@@ -8,7 +8,7 @@
 
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { BoardColumn, BoardContext, Task } from "@/domain/types";
-import type { TenantContext } from "@/server/auth/tenant";
+import { provenance, type TenantContext } from "@/server/auth/tenant";
 import type { Executor } from "@/server/db/client";
 import {
   boardColumns,
@@ -262,7 +262,7 @@ export async function recordPhaseChange(
     fromPhase: entry.fromPhase,
     toPhase: entry.toPhase,
     at: entry.at,
-    actorKind: "user",
-    actorId: context.userId,
+    actorKind: provenance(context).actorKind,
+    actorId: provenance(context).actorId,
   });
 }

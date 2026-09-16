@@ -213,7 +213,7 @@ export function TaskDocument({ task }: { task: TaskView }) {
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[13px] text-primary">
-                    {comment.authorName}
+                    {comment.byAutomation ? "Planora · automação" : comment.authorName}
                   </span>
                   <span className="flex items-center gap-2 text-[11px] text-subtle">
                     {formatDateTime(comment.createdAt)}

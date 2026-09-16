@@ -19,7 +19,7 @@ import { ok, refused, type Result } from "@/lib/result";
 import { archiveNotes } from "@/domain/phase-history";
 import type { BoardContext, Phase } from "@/domain/types";
 import { columnById, taskById } from "@/domain/types";
-import { can, type TenantContext } from "@/server/auth/tenant";
+import { can, provenance, type TenantContext } from "@/server/auth/tenant";
 import type { Database } from "@/server/db/client";
 import { emit } from "@/server/events/outbox";
 import {
@@ -166,8 +166,7 @@ export async function moveTask(
         forced: input.ack === "checklist",
       },
       dedupeKey: `task.moved:${row.id}:${to.id}:${now.getTime()}`,
-      actorKind: "user",
-      actorId: context.userId,
+      ...provenance(context),
     });
 
     /**
@@ -188,8 +187,7 @@ export async function moveTask(
           forced: input.ack === "checklist",
         },
         dedupeKey: `task.completed:${row.id}:${now.getTime()}`,
-        actorKind: "user",
-        actorId: context.userId,
+        ...provenance(context),
       });
 
       const after: BoardContext = {
@@ -213,8 +211,7 @@ export async function moveTask(
             resolvedBy: row.id,
           },
           dedupeKey: `dependency.resolved:${waiting.id}:${row.id}:${now.getTime()}`,
-          actorKind: "user",
-          actorId: context.userId,
+          ...provenance(context),
         });
       }
     }

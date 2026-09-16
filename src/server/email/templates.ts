@@ -87,6 +87,48 @@ export function invitationEmail({
   };
 }
 
+/* ------------------------------------------------------------------ *
+ * Notifications (§7 Phase 9)
+ * ------------------------------------------------------------------ */
+
+export type NotificationEmail = {
+  readonly to: string;
+  readonly title: string;
+  readonly body: string;
+  readonly url: string;
+};
+
+export function notificationEmail({ to, title, body, url }: NotificationEmail): EmailMessage {
+  return {
+    to,
+    subject: title,
+    text: [body, url].join("\n\n"),
+    html: layout(title, [body], { label: "Abrir no Planora", url }),
+  };
+}
+
+export type DigestEmail = {
+  readonly to: string;
+  readonly name: string;
+  readonly cadence: "daily" | "weekly";
+  readonly items: readonly { title: string; body: string; url: string }[];
+  readonly inboxUrl: string;
+};
+
+export function digestEmail({ to, name, cadence, items, inboxUrl }: DigestEmail): EmailMessage {
+  const period = cadence === "weekly" ? "da semana" : "do dia";
+  const subject = `${items.length} ${items.length === 1 ? "aviso" : "avisos"} ${period} no ${PRODUCT}`;
+  const lines = items.map((item) => `${item.title} — ${item.body}`);
+  const paragraphs = [`${name}, aqui está o que ficou sem ler:`, ...lines];
+
+  return {
+    to,
+    subject,
+    text: [...paragraphs, inboxUrl].join("\n\n"),
+    html: layout(subject, paragraphs, { label: "Abrir a caixa de entrada", url: inboxUrl }),
+  };
+}
+
 function layout(
   title: string,
   paragraphs: readonly string[],

@@ -187,6 +187,7 @@ export async function loadTaskDocument(
         workspaceId: taskComments.workspaceId,
         taskId: taskComments.taskId,
         authorId: taskComments.authorId,
+        actorKind: taskComments.actorKind,
         body: taskComments.body,
         createdAt: taskComments.createdAt,
         updatedAt: taskComments.updatedAt,

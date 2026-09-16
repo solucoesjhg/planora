@@ -10,7 +10,7 @@ import { keyBetween } from "@/domain/kanban";
 import { canCompleteProject, type CompletionRefusal } from "@/domain/projects";
 import type { CalendarDate } from "@/domain/types";
 import { ok, refused, type Result } from "@/lib/result";
-import { can, type TenantContext } from "@/server/auth/tenant";
+import { can, provenance, type TenantContext } from "@/server/auth/tenant";
 import type { Database } from "@/server/db/client";
 import { emit } from "@/server/events/outbox";
 import { loadBoardContext } from "@/server/modules/board/repository";
@@ -63,6 +63,7 @@ export async function createProject(
       workspaceId: context.workspaceId,
       type: "project.created",
       payload: { projectId: project.id, name: project.name },
+      ...provenance(context),
       dedupeKey: `project.created:${project.id}`,
       actorId: context.userId,
     });
@@ -102,6 +103,7 @@ export async function completeProject(
         name: project.name,
         forced: input.ack === "open-work",
       },
+      ...provenance(context),
       dedupeKey: `project.completed:${project.id}:${Date.now()}`,
       actorId: context.userId,
     });
@@ -128,6 +130,7 @@ export async function reopenProject(
       workspaceId: context.workspaceId,
       type: "project.reopened",
       payload: { projectId, name: project.name },
+      ...provenance(context),
       dedupeKey: `project.reopened:${projectId}:${Date.now()}`,
       actorId: context.userId,
     });

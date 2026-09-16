@@ -26,6 +26,10 @@ export const EVENT_TYPES = [
   "dependency.resolved",
   "project.health_changed",
   "member.invited",
+  // The clock's own events (§7 Phase 9): one per task per day at most.
+  "task.due_soon",
+  "task.overdue",
+  "task.stalled",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -41,6 +45,10 @@ export type DomainEvent = {
   readonly actorKind?: ActorKind;
   readonly actorId?: string | null;
   readonly occurredAt?: Date;
+  /** The event an automation was reacting to when it caused this one. */
+  readonly causedBy?: string | null;
+  /** How many automations stand between this event and a person's act. */
+  readonly depth?: number;
 };
 
 export async function emit(
@@ -56,6 +64,8 @@ export async function emit(
       dedupeKey: event.dedupeKey,
       actorKind: event.actorKind ?? "user",
       actorId: event.actorId ?? null,
+      causedBy: event.causedBy ?? null,
+      depth: event.depth ?? 0,
       ...(event.occurredAt ? { occurredAt: event.occurredAt } : {}),
     })
     .onConflictDoNothing({ target: outboxEvents.dedupeKey })

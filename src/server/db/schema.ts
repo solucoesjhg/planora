@@ -467,6 +467,8 @@ export const taskComments = pgTable(
     id: id(),
     workspaceId: uuid("workspace_id").notNull(),
     taskId: uuid("task_id").notNull(),
+    /** user · automation · ai — a rule's comment reads as the product's (§4.6). */
+    actorKind: text("actor_kind").notNull().default("user"),
     authorId: uuid("author_id")
       .notNull()
       .references(() => users.id),
@@ -677,6 +679,10 @@ export const outboxEvents = pgTable(
     dedupeKey: text("dedupe_key").notNull(),
     actorKind: text("actor_kind").notNull().default("user"),
     actorId: uuid("actor_id"),
+    /** The event an automation was reacting to when it caused this one (§7 Phase 9). */
+    causedBy: uuid("caused_by"),
+    /** How many automations stand between this event and a person's act. */
+    depth: integer("depth").notNull().default(0),
   },
   (table) => [
     unique("outbox_events_dedupe_key").on(table.dedupeKey),
@@ -707,3 +713,127 @@ export const schema = {
   activityLogs,
   outboxEvents,
 };
+
+/* ---------------------------------------------------------------- *
+ * Automation — rules, their runs, and what people are told (§7 Phase 9)
+ * ---------------------------------------------------------------- */
+
+export const RUN_STATUSES = ["succeeded", "failed", "skipped"] as const;
+export const EMAIL_STATUSES = ["none", "pending", "sent", "failed"] as const;
+export const DIGESTS = ["none", "daily", "weekly"] as const;
+
+/** `when <event> · if <conditions> · then <actions>`, as the person wrote it. */
+export const automations = pgTable(
+  "automations",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    trigger: text("trigger").notNull(),
+    conditions: jsonb("conditions").notNull().default([]),
+    actions: jsonb("actions").notNull().default([]),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    unique("automations_workspace_id_key").on(table.workspaceId, table.id),
+    index("automations_workspace_trigger_idx").on(table.workspaceId, table.trigger, table.enabled),
+  ],
+);
+
+/**
+ * One row per (event, automation), and the unique index is the idempotency:
+ * a retried dispatch finds the row and re-runs nothing (§7 Phase 9).
+ */
+export const automationRuns = pgTable(
+  "automation_runs",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id").notNull(),
+    automationId: uuid("automation_id").notNull(),
+    eventId: uuid("event_id").notNull(),
+    status: text("status").notNull().default("succeeded"),
+    /** Why a run was skipped, or what failed. */
+    detail: text("detail"),
+    actionsRun: integer("actions_run").notNull().default(0),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.workspaceId, table.automationId],
+      foreignColumns: [automations.workspaceId, automations.id],
+      name: "automation_runs_automation_fk",
+    }).onDelete("cascade"),
+    uniqueIndex("automation_runs_event_automation_key").on(table.eventId, table.automationId),
+    index("automation_runs_workspace_started_idx").on(table.workspaceId, table.startedAt),
+    check("automation_runs_status", inList("status", RUN_STATUSES)),
+  ],
+);
+
+/**
+ * The in-app inbox, one row per person per event. Email delivery is tracked
+ * on the same row: the notification is the side effect, sending it is the
+ * delivery, and a delivery can be retried without a second side effect.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    eventId: uuid("event_id").notNull(),
+    type: text("type").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    href: text("href"),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    emailStatus: text("email_status").notNull().default("none"),
+    emailAttempts: integer("email_attempts").notNull().default(0),
+    emailError: text("email_error"),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    uniqueIndex("notifications_event_user_key").on(table.eventId, table.userId),
+    index("notifications_inbox_idx").on(
+      table.workspaceId,
+      table.userId,
+      table.readAt,
+      table.createdAt,
+    ),
+    index("notifications_email_pending_idx").on(table.emailStatus, table.createdAt),
+    check("notifications_email_status", inList("email_status", EMAIL_STATUSES)),
+  ],
+);
+
+/** Per person, per workspace: which events reach the inbox, which the email, and how often a digest goes. */
+export const notificationPreferences = pgTable(
+  "notification_preferences",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** `{ "<event type>": { "inApp": boolean, "email": boolean } }`; absent means the default. */
+    channels: jsonb("channels").notNull().default({}),
+    digest: text("digest").notNull().default("none"),
+    lastDigestAt: timestamp("last_digest_at", { withTimezone: true }),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.userId] }),
+    check("notification_preferences_digest", inList("digest", DIGESTS)),
+  ],
+);

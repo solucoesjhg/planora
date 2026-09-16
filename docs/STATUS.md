@@ -1,6 +1,6 @@
 # Status
 
-**Phases 0 to 8 are merged**, with the repairs of two reviews — the
+**Phases 0 to 9 are merged — the MVP as §6.2 defines it** — with the repairs of two reviews — the
 phase-by-phase one (#9) and the consistency one (#11). **Production is live at
 https://planora-rosy.vercel.app** (Vercel `gru1`, Supabase São Paulo, Resend);
 the Phase 3 criterion — the same flow on the deployed URL — is met.
@@ -85,13 +85,30 @@ like the chosen workspace), the profile's name, the export as JSON or CSV
 (`/api/export`, one CSV row per task), and the Danger Zone — a project or the
 workspace, deleted behind its name typed out, checked on the server too.
 
+**Phase 9 — automations, notifications and scheduling.** The MVP ends here.
+`domain/automations` decides — `when <event> · if <conditions> · then
+<actions>`, at most ten actions per event, nothing past causal depth 3 — and
+`server/modules/automations` performs, through the same services a click goes
+through, with a context that signs as `automation` and carries the causing
+event. One run per `(event, automation)` (migration `0007`), claimed before any
+action: a retried dispatch re-runs nothing, a refused action is written into
+the run and stops nothing else, and the log is a screen. The outbox has three
+consumers now — the feed, the inbox, the rules — and gives a poisoned event up
+after three attempts. Notifications: one inbox row per person per event, the
+person who acted excluded; email as a delivery of that row, attempted three
+times, never a second row; per-person channels with defaults, and a daily or
+weekly digest. The clock's routines — due in two days, overdue, stalled past
+the phase threshold, the daily health evaluation — emit at most one event per
+task per day, and `GET /api/scheduler` runs a whole tick behind `CRON_SECRET`
+(pg_cron every minute on Supabase, a daily Vercel Cron as the net). Screens:
+`/settings/automations` with the form, the rules and the run log;
+`/settings/notifications`; `/inbox` with the bell in every header.
+
 ## Next
 
-- Phase 9 — automations, notifications and scheduling, where the MVP ends: the
-  queue and job state in Postgres with a clock from outside, the in-app inbox
-  and email per event type, the workspace rule engine, the time-based routines,
-  idempotent runs and a run log. `task.assigned` and `project.health_changed`
-  are already in the stream for it to consume.
+- **Turn the clock on in production** (`docs/DEPLOY.md`, 5): `CRON_SECRET`
+  in Vercel, the pg_cron job in Supabase, and a curl to check.
+- Phase 10 · Hardening — the first phase of Block C (§7).
 
 ## Open decisions
 
@@ -269,6 +286,35 @@ São Paulo, Resend with the test sender. Henrique ran the checks in
   them; a sweep belongs with the file gallery in Phase 8.
 
 ## Decisions taken since the plan
+
+- **Provenance travels on the `TenantContext`.** A rule runs with the
+  workspace's permissions but is not the person who wrote it: `context.actor`
+  says `automation`, names the causing event and its depth, and `provenance()`
+  is what every emit — and the phase trail, and a comment — signs with. Ten
+  emit sites that used to write `actorKind: "user"` by hand now cannot get it
+  wrong.
+- **A comment knows who really wrote it.** `task_comments.actor_kind`: a
+  rule's comment reads as "Planora · automação" in the document, never as the
+  person who owns the rule — §4.6 applied to the one row that had a person's
+  id and no way to say otherwise.
+- **The dispatcher gives up after three attempts.** An event that fails three
+  dispatches is marked processed with its last error rather than holding the
+  queue forever; the log keeps the reason.
+- **A rule with more than ten actions is refused when written, and capped when
+  run.** Two guards for one rule: the form cannot save it, and a row put there
+  by any other route still fires ten.
+- **Nobody is told what they did themselves.** Recipients of every event
+  exclude its actor; a solo workspace therefore hears only from the clock and
+  from its own rules' `notify` actions.
+- **A tick drains the outbox until it is quiet.** A rule's action emits events
+  of its own; dispatching once per mutation left them pending until the next
+  click, and the feed showed the move but not the comment the move caused.
+  `drainOutbox` repeats the pass while something was processed, bounded at six
+  — the engine's depth guard is what keeps a loop from reaching the bound.
+- **The minute tick is pg_cron; the Vercel cron is daily.** The Hobby plan runs
+  crons once a day, so the plan's "every minute" comes from Supabase's own
+  scheduler calling the route — one SQL statement, documented — and Vercel's
+  daily tick is the net under it.
 
 - **Health is evaluated on read, and the previous evaluation is yesterday's
   row.** Until Phase 9's clock exists, opening a board or the dashboard is

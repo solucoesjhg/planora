@@ -15,6 +15,16 @@ export type TenantContext = {
   readonly workspaceId: string;
   readonly userId: string;
   readonly role: Role;
+  /**
+   * Who is really acting, when it is not the person (§4.6): a rule runs with
+   * the permissions of the workspace but signs as `automation`, and carries
+   * the event that caused it so the engine can see how deep a chain has got.
+   */
+  readonly actor?: {
+    readonly kind: "automation" | "ai";
+    readonly causedBy: string;
+    readonly depth: number;
+  };
 };
 
 export type Action =
@@ -51,4 +61,25 @@ export function tenantContext(
   role: Role = "owner",
 ): TenantContext {
   return { workspaceId, userId, role };
+}
+
+/**
+ * The actor fields of an event this context emits. A person signs with their
+ * id; a rule signs as `automation` with no id, and passes on the cause — so
+ * the activity feed reads "Planora …", and a rule that triggers a rule is
+ * counted rather than hidden.
+ */
+export function provenance(context: TenantContext): {
+  actorKind: "user" | "automation" | "ai";
+  actorId: string | null;
+  causedBy: string | null;
+  depth: number;
+} {
+  if (!context.actor) return { actorKind: "user", actorId: context.userId, causedBy: null, depth: 0 };
+  return {
+    actorKind: context.actor.kind,
+    actorId: null,
+    causedBy: context.actor.causedBy,
+    depth: context.actor.depth,
+  };
 }

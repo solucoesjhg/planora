@@ -1,10 +1,12 @@
 /**
- * The outbox dispatcher (DEVELOPMENT_PLAN.md §4.5, §4.6).
+ * The outbox dispatcher (DEVELOPMENT_PLAN.md §4.5, §4.6, §7 Phase 9).
  *
- * Reads events nobody has consumed yet and hands them to the handlers. In the
- * MVP there is one handler — the activity feed — and it is idempotent: the
- * entry it writes is keyed on the event, so a retried dispatch cannot produce
- * the same line twice.
+ * Reads events nobody has consumed yet and hands them to three consumers,
+ * each idempotent on the event's id: the activity feed (one line per event),
+ * the notifications (one inbox row per person per event) and the automations
+ * (one run per rule per event). A dispatch that fails halfway is retried on
+ * the next tick and repeats nothing; after MAX_ATTEMPTS the event is marked
+ * processed with its last error, so a poisoned row cannot hold the queue.
  *
  * An action taken by a rule is recorded as `automation`, never as the person
  * who happens to own the workspace.
@@ -13,6 +15,8 @@
 import { asc, eq, isNull } from "drizzle-orm";
 import type { Database, Executor } from "@/server/db/client";
 import { activityLogs, outboxEvents } from "@/server/db/schema";
+import { runAutomationsFor } from "@/server/modules/automations/service";
+import { notifyFor } from "@/server/modules/notifications/service";
 import type { EventType } from "./outbox";
 
 type EventRow = typeof outboxEvents.$inferSelect;
@@ -20,7 +24,12 @@ type EventRow = typeof outboxEvents.$inferSelect;
 export type DispatchResult = {
   readonly processed: number;
   readonly failed: number;
+  /** Events that failed for the last time and were set aside. */
+  readonly abandoned: number;
 };
+
+/** A third failure is the last: the event is set aside with its error. */
+export const MAX_ATTEMPTS = 3;
 
 const SUBJECT_OF: Record<EventType, string> = {
   "project.created": "project",
@@ -37,6 +46,9 @@ const SUBJECT_OF: Record<EventType, string> = {
   "dependency.resolved": "task",
   "project.health_changed": "project",
   "member.invited": "workspace",
+  "task.due_soon": "task",
+  "task.overdue": "task",
+  "task.stalled": "task",
 };
 
 export async function dispatchPending(
@@ -52,30 +64,62 @@ export async function dispatchPending(
 
   let processed = 0;
   let failed = 0;
+  let abandoned = 0;
 
   for (const event of pending) {
     try {
       await db.transaction(async (tx) => {
         await recordActivity(tx, event);
-        await tx
-          .update(outboxEvents)
-          .set({ processedAt: new Date(), lastError: null })
-          .where(eq(outboxEvents.id, event.id));
+        await notifyFor(tx, event);
       });
+      // Rules act through the services, each in its own transaction; the run
+      // row they claim first is what makes a retry re-run nothing.
+      await runAutomationsFor(db, event);
+      await db
+        .update(outboxEvents)
+        .set({ processedAt: new Date(), lastError: null })
+        .where(eq(outboxEvents.id, event.id));
       processed += 1;
     } catch (error) {
       failed += 1;
+      const attempts = event.attempts + 1;
+      const givingUp = attempts >= MAX_ATTEMPTS;
+      if (givingUp) abandoned += 1;
       await db
         .update(outboxEvents)
         .set({
-          attempts: event.attempts + 1,
+          attempts,
           lastError: error instanceof Error ? error.message : String(error),
+          ...(givingUp ? { processedAt: new Date() } : {}),
         })
         .where(eq(outboxEvents.id, event.id));
     }
   }
 
-  return { processed, failed };
+  return { processed, failed, abandoned };
+}
+
+/**
+ * Dispatches until nothing new appears — bounded, because a rule's action
+ * emits events of its own and those deserve the same tick. The depth guard
+ * in the engine is what keeps the bound from being reached by a loop.
+ */
+export async function drainOutbox(
+  db: Database,
+  options: { limit?: number; passes?: number } = {},
+): Promise<DispatchResult> {
+  const total = { processed: 0, failed: 0, abandoned: 0 };
+  const passes = options.passes ?? 6;
+
+  for (let pass = 0; pass < passes; pass += 1) {
+    const result = await dispatchPending(db, options);
+    total.processed += result.processed;
+    total.failed += result.failed;
+    total.abandoned += result.abandoned;
+    if (result.processed === 0) break;
+  }
+
+  return total;
 }
 
 async function recordActivity(executor: Executor, event: EventRow): Promise<void> {

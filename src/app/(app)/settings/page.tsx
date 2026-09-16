@@ -1,4 +1,5 @@
-import { Download } from "lucide-react";
+import { Bell, Download, Zap } from "lucide-react";
+import Link from "next/link";
 import { AppShell } from "@/components/layout/app-shell";
 import { ToastProvider } from "@/components/ui/toast";
 import { Appearance } from "@/features/settings/appearance";
@@ -42,6 +43,28 @@ export default async function SettingsPage() {
 
           <Section title="Preferências">
             <HideCompletedSwitch initial={hidingCompleted} />
+          </Section>
+
+          <Section
+            title="Automações e notificações"
+            hint="Regras que agem quando algo acontece, e o que chega até você."
+          >
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/settings/automations"
+                className="flex items-center gap-2 rounded-control border border-line px-3 py-2 text-[13px] text-secondary transition-colors hover:bg-card-hover hover:text-primary"
+              >
+                <Zap size={14} aria-hidden />
+                Automações
+              </Link>
+              <Link
+                href="/settings/notifications"
+                className="flex items-center gap-2 rounded-control border border-line px-3 py-2 text-[13px] text-secondary transition-colors hover:bg-card-hover hover:text-primary"
+              >
+                <Bell size={14} aria-hidden />
+                Notificações
+              </Link>
+            </div>
           </Section>
 
           <Section title="Perfil">

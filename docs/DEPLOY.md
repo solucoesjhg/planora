@@ -195,6 +195,57 @@ wrong and the verification email arrives pointing at `localhost`.
 
 ---
 
+## 5. The clock
+
+Phase 9's routines — deadlines approaching and passed, cards stalled in a
+column, the daily health evaluation, email digests — run when something calls
+`GET /api/scheduler` with the shared secret. Nothing inside Postgres or the
+application ticks on its own.
+
+### 5.1 The secret
+
+Generate 32 random characters and add them as `CRON_SECRET` in Vercel →
+Settings → Environment Variables (Production). Redeploy. Without it the route
+answers 404; with a wrong bearer, 401.
+
+Vercel sends that same header on its own crons, and `vercel.json` schedules one
+**daily** tick at 09:00 UTC as a safety net — the Hobby plan runs crons once a
+day at most, which is enough for digests and the daily snapshot, and not enough
+for "deadline in two days" to be noticed the morning it becomes true.
+
+### 5.2 The minute tick — pg_cron on Supabase
+
+Every plan has `pg_cron` and `pg_net`. In Supabase → **Database → Extensions**,
+enable both. Then in the **SQL Editor**, with your URL and secret:
+
+```sql
+select cron.schedule(
+  'planora-scheduler',
+  '* * * * *',
+  $$
+    select net.http_post(
+      url     := 'https://planora-rosy.vercel.app/api/scheduler',
+      headers := '{"Authorization": "Bearer <CRON_SECRET>"}'::jsonb
+    )
+  $$
+);
+```
+
+`select * from cron.job;` lists it; `select cron.unschedule('planora-scheduler');`
+stops it. Each tick is idempotent — the routines emit at most one event per
+task per day, the outbox is keyed, and a digest is sent once per period — so a
+tick that overlaps the previous one does no harm.
+
+### 5.3 Check it
+
+```
+curl -H "Authorization: Bearer <CRON_SECRET>" https://planora-rosy.vercel.app/api/scheduler
+```
+
+answers `{"ok":true, "routines": {...}, "dispatched": {...}, ...}`. Then
+*Settings → Automações* in the app shows the runs, and *Caixa de entrada* the
+notifications.
+
 ## Environment variables
 
 | Name | Value | Notes |
@@ -206,6 +257,7 @@ wrong and the verification email arrives pointing at `localhost`.
 | `SUPABASE_URL` | project URL | Storage only — the SDK appears in exactly one file |
 | `SUPABASE_SERVICE_ROLE_KEY` | secret / `service_role` key | server-side only |
 | `SUPABASE_STORAGE_BUCKET` | `attachments` | |
+| `CRON_SECRET` | 32+ random characters | the scheduler route exists only with it (5) |
 | `RESEND_API_KEY` | Resend key | required in production |
 | `EMAIL_FROM` | must match a sender Resend allows | |
 
