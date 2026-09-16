@@ -104,11 +104,33 @@ task per day, and `GET /api/scheduler` runs a whole tick behind `CRON_SECRET`
 `/settings/automations` with the form, the rules and the run log;
 `/settings/notifications`; `/inbox` with the bell in every header.
 
+**After the MVP — the board, the shell, the kit and the phone.** Tailwind v4
+had dropped the `[--var]` syntax and two board classes were dead: columns never
+had their 300px nor their gap. Fixed, and columns now fill the strip. The board
+reads as paper — procedural grain, layered shadow, a colour per phase (planning
+and review had shared one), the right-hand accent and rules the card spec
+always asked for, the phase as a continuous fall of colour at the top of each
+column. `(app)/layout.tsx` renders the shell's persistent part once, so a
+navigation no longer remounts the rail; "Quadro" lights on a board and links
+straight to the last one opened. Hover-to-scroll at the strip's edges where a
+pointer can hover; on touch a swipe scrolls and a long press carries; "Nova
+tarefa" pinned above the cards. The kit's composition brought over: 58px rail
+items under a serif wordmark, a 40px title with its eyebrow, 64px serif column
+headers, the progress donut, the main tasks and the mini project list in the
+pane, 44px controls, the vignette. Below 768px the board is one phase at a
+time with tabs, a health strip under the title and a bottom bar.
+`pnpm db:seed:dev` writes a standing local account. What departs from the kit
+on purpose, and where the kit contradicted itself, is in
+`docs/design/10-decisoes-e-erratas.md`.
+
 ## Next
 
 - **Turn the clock on in production** (`docs/DEPLOY.md`, 5): `CRON_SECRET`
   in Vercel, the pg_cron job in Supabase, and a curl to check.
 - Phase 10 · Hardening — the first phase of Block C (§7).
+- Watch the phone board in use. Directions B (a snapping carousel) and C (a
+  list by phase) are kept in the design canvas of 2026-09-17 in case tabs do
+  not prove out.
 
 ## Open decisions
 
@@ -131,10 +153,10 @@ task per day, and `GET /api/scheduler` runs a whole tick behind `CRON_SECRET`
 - **E2E does not run in CI yet.** It needs Postgres, Mailpit and a browser on
   the runner; the plan puts the full suite in CI at Phase 11. It runs locally
   with `pnpm e2e`.
-- No CLI seed script yet; the seed is exercised by the integration tests, and
-  `/dev/ui` renders hand-written examples rather than database rows. A
-  `db:seed` command is worth adding when a screen needs a populated database
-  to look at.
+- `pnpm db:seed:dev` writes one standing developer account with the example
+  project, and refuses any database that is not local. A full `db:seed` of a
+  populated board is still worth adding when a screen needs one to look at;
+  `/dev/ui` renders hand-written examples rather than database rows.
 - CI warns that the `actions/*@v4` steps target Node 20, which GitHub has
   deprecated; the runner forces Node 24 and the jobs pass.
 
@@ -287,6 +309,26 @@ São Paulo, Resend with the test sender. Henrique ran the checks in
 
 ## Decisions taken since the plan
 
+- **The shell is a layout; a screen is only its centre.** `(app)/layout.tsx`
+  renders `ShellFrame` — grid, rail, navigation drawer — once, and `AppShell`
+  inside it draws only header, centre and panel. On its own, as in the
+  gallery, `AppShell` still draws the whole shell, so no page changed. This is
+  what stopped every navigation from blinking the shell out and back.
+- **The last board is a cookie the browser writes.** A page cannot set a
+  cookie while rendering, so the board writes `planora-last-board` on the
+  client; it holds an id already in the address bar, so it is not `httpOnly`,
+  and the rail reads it to keep "Quadro" pointing at the right board without a
+  reload. Deleting a project clears it.
+- **A mouse and a finger are different sensors.** dnd-kit's `MouseSensor`
+  activates on 5px of travel; its `TouchSensor` only after a 250ms hold, and
+  cards allow panning (`touch-action: manipulation`), so a swipe over a card
+  scrolls the strip. Before, `touch-action: none` made most of a column
+  unscrollable on a phone.
+- **Design decisions live next to the kit.** `docs/design/10-decisoes-e-erratas.md`
+  records each deliberate departure with its date, resolves the kit's internal
+  contradictions (measure and colour come from the tokens, drawing from the
+  spec) and lists what is not built yet. Without it the next reader of a spec
+  "fixes" a decision back.
 - **Provenance travels on the `TenantContext`.** A rule runs with the
   workspace's permissions but is not the person who wrote it: `context.actor`
   says `automation`, names the causing event and its depth, and `provenance()`
