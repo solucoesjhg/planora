@@ -74,6 +74,13 @@ test("the proxy sends a visitor to the login page", async ({ page }) => {
 
   await expect(page).toHaveURL(/\/login\?next=%2Fdashboard/);
   await expect(page.getByRole("heading", { name: "Entrar" })).toBeVisible();
+
+  // Every signed-in screen, including the ones later phases added: the page
+  // would refuse on its own, but only the proxy remembers where to come back.
+  for (const path of ["/inbox", "/settings/automations", "/files"]) {
+    await page.goto(path);
+    await expect(page).toHaveURL(`/login?next=${encodeURIComponent(path)}`);
+  }
 });
 
 type MailpitList = {
