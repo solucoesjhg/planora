@@ -42,10 +42,11 @@ export const TaskCardView = forwardRef<
       ref={ref}
       data-testid="task-card"
       data-task-number={`TSK-${task.number}`}
+      data-task-phase={phase}
       data-blocked={blocked ? "true" : "false"}
       className={cn(
-        "relative min-h-[7.125rem] cursor-grab touch-none rounded-card border border-line",
-        "bg-card p-4 shadow-card transition-colors duration-150",
+        "pln-sheet pln-sheet-hover min-h-[7.125rem] cursor-grab touch-none overflow-hidden",
+        "rounded-card border border-line bg-card p-4 pr-14",
         "hover:bg-card-hover active:cursor-grabbing",
         // Drop Catch: the card springs back rather than opening a dialog.
         bouncing && "motion-safe:animate-[pln-bounce_320ms_ease-out]",
@@ -53,16 +54,9 @@ export const TaskCardView = forwardRef<
       )}
       {...rest}
     >
-      <span
-        aria-hidden
-        className={cn(
-          "absolute inset-y-3 left-0 w-[2px] rounded-full",
-          phase === "planning" && "bg-phase-planning",
-          phase === "execution" && "bg-phase-execution",
-          phase === "review" && "bg-phase-review",
-          phase === "done" && "bg-phase-done",
-        )}
-      />
+      <span aria-hidden className="pln-phase-rule pln-phase-rule-outer" />
+      <span aria-hidden className="pln-phase-rule pln-phase-rule-inner" />
+      <span aria-hidden className="pln-phase-band" />
 
       <header className="flex items-start justify-between gap-2">
         <span className="font-mono text-[11px] text-subtle">TSK-{task.number}</span>

@@ -242,6 +242,7 @@ export function Board({ view }: BoardProps) {
       <DragOverlay dropAnimation={null}>
         {draggingTask ? (
           <TaskCardView
+            className="pln-sheet-held"
             task={draggingTask}
             phase={
               columns.find((column) => column.id === draggingTask.columnId)?.phase ??

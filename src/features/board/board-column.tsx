@@ -34,28 +34,23 @@ export const BoardColumn = forwardRef<HTMLElement, BoardColumnProps>(
         data-column-phase={column.phase}
         data-column-name={column.name}
         className={cn(
-          "flex min-w-column flex-1 flex-col rounded-column border border-line",
-          "bg-surface transition-colors duration-150",
-          isOver && "border-sienna/50 bg-card-hover",
+          "pln-tray flex min-w-column flex-1 flex-col overflow-hidden",
+          "rounded-column border border-line bg-app-soft transition-colors duration-150",
+          isOver && "border-sienna/50",
         )}
       >
-        <header className="flex items-center gap-2 border-b border-hairline px-3 py-2.5">
-          <span
-            aria-hidden
-            className={cn(
-              "size-1.5 shrink-0 rounded-full",
-              column.phase === "planning" && "bg-phase-planning",
-              column.phase === "execution" && "bg-phase-execution",
-              column.phase === "review" && "bg-phase-review",
-              column.phase === "done" && "bg-phase-done",
-            )}
-          />
+        <span aria-hidden className="pln-phase-veil" />
+
+        <header className="flex items-center gap-2.5 px-3 py-2.5">
+          <span aria-hidden className="pln-phase-dot shrink-0" />
 
           <h3 className="min-w-0 flex-1 truncate text-[13px] font-medium text-primary">
             {column.name}
           </h3>
 
-          <span className="font-mono text-[11px] text-subtle">{count}</span>
+          <span className="pln-phase-count font-mono text-[11px] text-secondary">
+            {count}
+          </span>
 
           <ColumnMenu
             column={column}
@@ -65,7 +60,7 @@ export const BoardColumn = forwardRef<HTMLElement, BoardColumnProps>(
           />
         </header>
 
-        <div className="flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto p-2">
+        <div className="flex min-h-24 flex-1 flex-col gap-2.5 overflow-y-auto px-3 pb-3 pt-2.5">
           {children}
           {footer}
         </div>
