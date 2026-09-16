@@ -34,7 +34,7 @@ export const BoardColumn = forwardRef<HTMLElement, BoardColumnProps>(
         data-column-phase={column.phase}
         data-column-name={column.name}
         className={cn(
-          "flex w-[--pln-column-w] shrink-0 flex-col rounded-column border border-line",
+          "flex min-w-column flex-1 flex-col rounded-column border border-line",
           "bg-surface transition-colors duration-150",
           isOver && "border-sienna/50 bg-card-hover",
         )}

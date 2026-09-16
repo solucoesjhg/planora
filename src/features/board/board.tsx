@@ -221,7 +221,7 @@ export function Board({ view }: BoardProps) {
       <div
         ref={scroller}
         data-testid="board-scroller"
-        className="flex min-h-0 flex-1 gap-[--pln-column-gap] overflow-x-auto pb-4"
+        className="flex min-h-0 flex-1 gap-(--pln-column-gap) overflow-x-auto pb-4"
       >
         {columns.map((column) => (
           <DroppableColumn
