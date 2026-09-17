@@ -123,6 +123,17 @@ time with tabs, a health strip under the title and a bottom bar.
 on purpose, and where the kit contradicted itself, is in
 `docs/design/10-decisoes-e-erratas.md`.
 
+**Password recovery.** The plan put it in Phase 3 and the server half was
+there — `sendResetPassword`, the template, the rate rule — but nothing on the
+screen reached it. Now "Esqueci minha senha" under the login form leads to
+`/forgot-password`, which answers the same whether or not the address exists;
+the message carries a single-use link, good for an hour, to `/reset-password`,
+which reads the token or the error from the query on the server and shows the
+form, the "não vale mais" screen or the done screen. A reset revokes every
+session on the old password, and the policy checks the new one against the
+person's own name and address, read from the token. Four integration tests and
+one end-to-end through the local inbox.
+
 ## Next
 
 - **Turn the clock on in production** (`docs/DEPLOY.md`, 5): `CRON_SECRET`
@@ -502,3 +513,13 @@ São Paulo, Resend with the test sender. Henrique ran the checks in
   stored theme before first paint.
 - The calendar is written here rather than installed: a month grid is a hundred
   lines, and the arithmetic is testable without a browser.
+- **A reset signs everybody out.** `revokeSessionsOnPasswordReset` is on: a
+  person resetting a password is most often taking an account back, and the
+  session that should end is the one they cannot see. The reset token is a
+  stored row consumed on use, so unlike the verification link it is not a
+  bearer credential for its whole hour — which is why that hour was kept.
+- **The policy sees who is behind a reset.** The reset request carries no name
+  or address, so the hook reads the user from the token's verification row
+  before checking the new password; `henrique-zanella` is refused there as it
+  is at sign-up. The endpoint refuses the token itself a moment later if it is
+  bad, so the lookup decides nothing on its own.

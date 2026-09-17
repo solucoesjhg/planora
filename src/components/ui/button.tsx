@@ -27,6 +27,25 @@ export type ButtonProps = ComponentProps<"button"> & {
   readonly size?: ButtonSize;
 };
 
+/**
+ * The button's look on its own, for a link that should read as one — "Entrar"
+ * after a password reset. The element stays an anchor: it navigates, and the
+ * browser treats it as such.
+ */
+export function buttonClassName(
+  { variant = "secondary", size = "md" }: Pick<ButtonProps, "variant" | "size"> = {},
+  className?: string,
+): string {
+  return cn(
+    "inline-flex select-none items-center justify-center rounded-control border font-medium",
+    "transition-colors duration-150",
+    "disabled:pointer-events-none disabled:border-line disabled:bg-transparent disabled:text-disabled",
+    VARIANTS[variant],
+    SIZES[size],
+    className,
+  );
+}
+
 export function Button({
   variant = "secondary",
   size = "md",
@@ -35,17 +54,6 @@ export function Button({
   ...props
 }: ButtonProps) {
   return (
-    <button
-      type={type}
-      className={cn(
-        "inline-flex select-none items-center justify-center rounded-control border font-medium",
-        "transition-colors duration-150",
-        "disabled:pointer-events-none disabled:border-line disabled:bg-transparent disabled:text-disabled",
-        VARIANTS[variant],
-        SIZES[size],
-        className,
-      )}
-      {...props}
-    />
+    <button type={type} className={buttonClassName({ variant, size }, className)} {...props} />
   );
 }

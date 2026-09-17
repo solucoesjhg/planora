@@ -1,5 +1,12 @@
 import { test, expect } from "./support/test";
-import { messagesTo, submitRegistration, uniqueEmail } from "./support/account";
+import {
+  PASSWORD as ACCOUNT_PASSWORD,
+  messagesTo,
+  registerAndVerify,
+  submitRegistration,
+  uniqueEmail,
+  waitForResetLink,
+} from "./support/account";
 
 /**
  * The Phase 3 criterion, end to end: an account is created, the verification
@@ -108,3 +115,49 @@ async function waitForVerificationLink(
 
   throw new Error(`no verification message arrived for ${email}`);
 }
+
+/**
+ * Recovery, end to end: the link under the login form, the message in the
+ * local inbox, a new password, and the old one refused at the door. The link
+ * is single-use, so opening it again lands on the "não vale mais" screen.
+ */
+test("a forgotten password is replaced through the link in the inbox", async ({
+  page,
+  request,
+}) => {
+  const email = await registerAndVerify(page, request);
+  await page.context().clearCookies();
+
+  await page.goto("/login");
+  await page.getByRole("link", { name: "Esqueci minha senha" }).click();
+  await expect(page.getByRole("heading", { name: "Recuperar senha" })).toBeVisible();
+
+  await page.getByLabel("E-mail").fill(email);
+  await page.getByRole("button", { name: "Enviar link" }).click();
+  await expect(page.getByRole("heading", { name: "Veja seu e-mail" })).toBeVisible();
+
+  const link = await waitForResetLink(request, email);
+  await page.goto(link);
+  await expect(page).toHaveURL(/\/reset-password\?token=/);
+  await expect(page.getByRole("heading", { name: "Nova senha" })).toBeVisible();
+
+  const replacement = "outra trilha, agora seca";
+  await page.getByLabel("Nova senha").fill(replacement);
+  await page.getByRole("button", { name: "Salvar nova senha" }).click();
+  await expect(page.getByRole("heading", { name: "Senha redefinida" })).toBeVisible();
+
+  // The same link, again: consumed.
+  await page.goto(link);
+  await expect(page).toHaveURL(/\/reset-password\?error=INVALID_TOKEN/);
+  await expect(page.getByRole("heading", { name: "Este link não vale mais" })).toBeVisible();
+
+  await page.goto("/login");
+  await page.getByLabel("E-mail").fill(email);
+  await page.getByLabel("Senha").fill(ACCOUNT_PASSWORD);
+  await page.getByRole("button", { name: "Entrar" }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+
+  await page.getByLabel("Senha").fill(replacement);
+  await page.getByRole("button", { name: "Entrar" }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+});

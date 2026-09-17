@@ -29,6 +29,9 @@ import { authSecret } from "./secret";
 /** The endpoints that accept a password Better Auth is about to store. */
 const PASSWORD_PATHS = ["/sign-up/email", "/change-password", "/reset-password"];
 
+/** How long a password-reset link works, in seconds. The email says so too. */
+export const RESET_TOKEN_TTL = 3600;
+
 export type AuthOptions = {
   readonly database: Database;
   readonly sender: EmailSender;
@@ -79,6 +82,14 @@ export function createAuth({
       enabled: true,
       requireEmailVerification: true,
       minPasswordLength: MIN_PASSWORD_LENGTH,
+      /**
+       * Password recovery. The token is 24 random characters stored in
+       * `verifications` and consumed on use — unlike the verification link,
+       * it works once. Whoever held a session on the old password loses it: a
+       * reset is most often a person taking their account back.
+       */
+      resetPasswordTokenExpiresIn: RESET_TOKEN_TTL,
+      revokeSessionsOnPasswordReset: true,
       sendResetPassword: async ({ user, url }) => {
         await sender.send(
           resetPasswordEmail({ to: user.email, name: user.name, url }),
@@ -143,6 +154,9 @@ export function createAuth({
         "/sign-in/email": { window: 60, max: 10 },
         "/sign-up/email": { window: 60, max: 5 },
         "/request-password-reset": { window: 60, max: 5 },
+        // Ten a minute is plenty for honest retries at a refused password and
+        // nothing at all against a 24-character token.
+        "/reset-password": { window: 60, max: 10 },
         "/send-verification-email": { window: 60, max: 5 },
       },
     },
@@ -162,15 +176,20 @@ export function createAuth({
           newPassword?: string;
           email?: string;
           name?: string;
+          token?: string;
         };
         const password = body.newPassword ?? body.password;
         if (!password) return;
 
-        const decision = await checkPassword(
-          password,
-          { email: body.email, name: body.name },
-          { checkBreaches },
-        );
+        // A reset carries no name or address, only the token; the person is
+        // behind it in the verification row, and the policy should refuse
+        // their own name in the new password as it does at sign-up.
+        const identity =
+          ctx.path === "/reset-password"
+            ? await identityBehindResetToken(ctx, body.token ?? ctx.query?.token)
+            : { email: body.email, name: body.name };
+
+        const decision = await checkPassword(password, identity, { checkBreaches });
 
         if (decision.kind === "refused") {
           throw new APIError("BAD_REQUEST", {
@@ -185,6 +204,28 @@ export function createAuth({
 }
 
 export type Auth = ReturnType<typeof createAuth>;
+
+type HookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
+
+/**
+ * Who a reset token belongs to, read the way the endpoint reads it: the
+ * verification row holds the user id. A token that is missing, unknown or
+ * expired yields nobody — the endpoint refuses it a moment later with its own
+ * message, and there is nothing to say about a password that will not be
+ * stored.
+ */
+async function identityBehindResetToken(
+  ctx: HookContext,
+  token: unknown,
+): Promise<{ email?: string; name?: string }> {
+  if (typeof token !== "string" || token.length === 0) return {};
+  const verification = await ctx.context.internalAdapter.findVerificationValue(
+    `reset-password:${token}`,
+  );
+  if (!verification || verification.expiresAt < new Date()) return {};
+  const user = await ctx.context.internalAdapter.findUserById(verification.value);
+  return user ? { email: user.email, name: user.name } : {};
+}
 
 let instance: Auth | null = null;
 
