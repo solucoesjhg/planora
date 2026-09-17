@@ -6,7 +6,9 @@ import { createAuth } from "@/server/auth/config";
 import type { Connection } from "@/server/db/client";
 import {
   rateLimits,
+  sessions,
   users,
+  verifications,
   workspaceInvitations,
   workspaceMembers,
   workspaces,
@@ -463,5 +465,134 @@ suite("invitations", () => {
 
     expect(isRefused(expired) && expired.reason).toBe("expired");
     expect(isRefused(unknown) && unknown.reason).toBe("invalid-token");
+  });
+});
+
+suite("recovering a password", () => {
+  let connection: Connection;
+  let sender: ReturnType<typeof memorySender>;
+  let auth: ReturnType<typeof createAuth>;
+
+  const email = "henrique@example.com";
+  const newPassword = "trilha molhada de barro";
+
+  beforeAll(async () => {
+    connection = await connectAndMigrate();
+  });
+
+  afterAll(async () => {
+    await connection.close();
+  });
+
+  beforeEach(async () => {
+    await resetDatabase(connection.db);
+    sender = memorySender();
+    auth = createAuth({
+      database: connection.db,
+      sender,
+      baseUrl: "http://localhost:3000",
+      secret: "test-secret-test-secret-test-secret-32",
+      checkBreaches: false,
+    });
+    await auth.api.signUpEmail({
+      body: { name: "Henrique Zanella", email, password },
+    });
+    // Sign-in needs a verified address; recovery itself does not.
+    await connection.db.update(users).set({ emailVerified: true }).where(eq(users.email, email));
+    sender.outbox.length = 0;
+  });
+
+  /** Asks for the link and reads the token out of the message. */
+  async function requestToken(): Promise<string> {
+    await auth.api.requestPasswordReset({ body: { email, redirectTo: "/reset-password" } });
+    const message = sender.outbox.at(-1);
+    expect(message?.to).toBe(email);
+    expect(message?.subject).toContain("Redefinir sua senha");
+    const token = message?.text.match(/\/reset-password\/([^?\s]+)\?/)?.[1];
+    if (!token) throw new Error("no reset link in the message");
+    return token;
+  }
+
+  const reset = (token: string, newPassword: string) =>
+    auth.handler(
+      new Request("http://localhost:3000/api/auth/reset-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token, newPassword }),
+      }),
+    );
+
+  const signIn = (password: string) =>
+    auth.handler(
+      new Request("http://localhost:3000/api/auth/sign-in/email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      }),
+    );
+
+  it("emails a link that works once, signs out every session, and swaps the password", async () => {
+    expect((await signIn(password)).status).toBe(200);
+    expect(await connection.db.select().from(sessions)).toHaveLength(1);
+
+    const token = await requestToken();
+    expect((await reset(token, newPassword)).status).toBe(200);
+
+    // The token was consumed: the row is gone and a second use is refused.
+    expect(await connection.db.select().from(verifications)).toHaveLength(0);
+    expect((await reset(token, "outra frase comprida")).status).toBe(400);
+
+    // Whoever was signed in with the old password no longer is.
+    expect(await connection.db.select().from(sessions)).toHaveLength(0);
+
+    expect((await signIn(password)).status).toBe(401);
+    expect((await signIn(newPassword)).status).toBe(200);
+  });
+
+  it("answers an unknown address exactly as a known one, and sends nothing", async () => {
+    const answer = await auth.api.requestPasswordReset({
+      body: { email: "ninguem@example.com", redirectTo: "/reset-password" },
+    });
+
+    expect(answer.status).toBe(true);
+    expect(sender.outbox).toHaveLength(0);
+  });
+
+  it("holds the new password to the policy, including the person's own name", async () => {
+    const token = await requestToken();
+
+    const own = await reset(token, "henrique-zanella");
+    const common = await reset(token, "senha123");
+
+    expect(own.status).toBe(400);
+    expect(((await own.json()) as { message?: string }).message).toContain("nome");
+    expect(common.status).toBe(400);
+    expect(((await common.json()) as { message?: string }).message).toContain("mais usadas");
+
+    // A refused password does not spend the token.
+    expect((await reset(token, newPassword)).status).toBe(200);
+  });
+
+  it("sends the link's visitor to the page with the token, or with the error", async () => {
+    const token = await requestToken();
+    const visit = (value: string) =>
+      auth.handler(
+        new Request(
+          `http://localhost:3000/api/auth/reset-password/${value}?callbackURL=%2Freset-password`,
+          { redirect: "manual" },
+        ),
+      );
+
+    const good = await visit(token);
+    expect(good.status).toBe(302);
+    expect(good.headers.get("location")).toBe(
+      `http://localhost:3000/reset-password?token=${token}`,
+    );
+
+    const bad = await visit("nao-existe");
+    expect(bad.status).toBe(302);
+    expect(bad.headers.get("location")).toBe(
+      "http://localhost:3000/reset-password?error=INVALID_TOKEN",
+    );
   });
 });

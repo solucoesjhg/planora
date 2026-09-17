@@ -73,6 +73,12 @@ export function LoginForm({ next }: { next: string }) {
       </form>
 
       <p className="text-[13px] text-secondary">
+        <Link href="/forgot-password" className="text-sienna underline-offset-4 hover:underline">
+          Esqueci minha senha
+        </Link>
+      </p>
+
+      <p className="text-[13px] text-secondary">
         Não tem conta?{" "}
         <Link
           href={next === "/dashboard" ? "/register" : `/register?next=${encodeURIComponent(next)}`}

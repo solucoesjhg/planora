@@ -68,6 +68,14 @@ export async function waitForVerificationLink(
   return waitForLink(request, email, /https?:\/\/[^\s"<>]+verify-email[^\s"<>]*/);
 }
 
+/** The password-reset link, from the same local inbox. */
+export async function waitForResetLink(
+  request: APIRequestContext,
+  email: string,
+): Promise<string> {
+  return waitForLink(request, email, /https?:\/\/[^\s"<>]+\/reset-password\/[^\s"<>]*/);
+}
+
 /** The invitation link, from the same local inbox. */
 export async function waitForInvitationLink(
   request: APIRequestContext,
