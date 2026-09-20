@@ -142,7 +142,9 @@ no mail. Vercel's daily cron carries the same header on its own. The minute
 tick is scheduled on Supabase — `pg_cron` and `pg_net` enabled,
 `planora-scheduler`, `* * * * *` — with the same secret. The secret was
 rotated once the same day, after its first value had crossed a chat; the old
-value answers 401 and the new one `ok`. The statement in
+value answers 401 and the new one `ok`. `net._http_response` on Supabase shows
+the ticks landing: a 200 with the route's `ok` body every minute, each
+answered in about two hundred milliseconds. The statement in
 `DEPLOY.md` gained `timeout_milliseconds := 30000`: pg_net gives up after five
 seconds by default, and a tick with digests to send can take longer than that.
 Signing out, which had worked since Phase 3 without a test, has one now in
@@ -150,10 +152,6 @@ Signing out, which had worked since Phase 3 without a test, has one now in
 
 ## Next
 
-- **Confirm the minute tick is landing** (`docs/DEPLOY.md`, 5.2): in the
-  Supabase SQL Editor, `cron.job_run_details` should show a row a minute and
-  `net._http_response` a 200 with the route's `ok` body for each; in the app,
-  *Settings → Automações* shows a run per tick that had something to do.
 - Phase 10 · Hardening — the first phase of Block C (§7).
 - Watch the phone board in use. Directions B (a snapping carousel) and C (a
   list by phase) are kept in the design canvas of 2026-09-17 in case tabs do
