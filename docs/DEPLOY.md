@@ -238,7 +238,10 @@ never arrives is logged as a failure in `net._http_response` even when the
 route finished its work — thirty seconds keeps the log honest.
 
 `select * from cron.job;` lists it; `select cron.unschedule('planora-scheduler');`
-stops it. Each tick is idempotent — the routines emit at most one event per
+stops it. The secret sits in the job's command in clear, readable by anyone
+with the database, so keep it out of chats and screenshots. To rotate it:
+change the variable in Vercel, redeploy, then unschedule and schedule again
+with the new value — the ticks in between answer 401 and nothing is lost. Each tick is idempotent — the routines emit at most one event per
 task per day, the outbox is keyed, and a digest is sent once per period — so a
 tick that overlaps the previous one does no harm.
 
