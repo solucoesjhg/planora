@@ -161,3 +161,27 @@ test("a forgotten password is replaced through the link in the inbox", async ({
   await page.getByRole("button", { name: "Entrar" }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
 });
+
+/**
+ * Leaving. "Sair" in the account menu ends the session on the server and
+ * lands on the login page; the cookie is gone, so the next protected URL is
+ * refused by the proxy rather than answered from a session that no longer
+ * exists.
+ */
+test("signing out ends the session and leads to the login page", async ({
+  page,
+  request,
+}) => {
+  const email = await registerAndVerify(page, request);
+  await expect(page).toHaveURL(/\/dashboard$/);
+
+  await page.getByRole("button", { name: "Conta" }).click();
+  await expect(page.getByText(email)).toBeVisible();
+  await page.getByRole("button", { name: "Sair" }).click();
+
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByRole("heading", { name: "Entrar" })).toBeVisible();
+
+  await page.goto("/dashboard");
+  await expect(page).toHaveURL(/\/login\?next=%2Fdashboard/);
+});
