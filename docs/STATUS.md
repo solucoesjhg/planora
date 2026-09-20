@@ -139,8 +139,10 @@ the deployment answers to it: without a bearer `/api/scheduler` is now 401
 rather than 404, and the first tick answered `ok` in under half a second —
 three projects evaluated, one health changed, nothing due, overdue or stalled,
 no mail. Vercel's daily cron carries the same header on its own. The minute
-tick is scheduled on Supabase — `pg_cron` and `pg_net` enabled, job 1,
-`planora-scheduler`, `* * * * *` — with the same secret. The statement in
+tick is scheduled on Supabase — `pg_cron` and `pg_net` enabled,
+`planora-scheduler`, `* * * * *` — with the same secret. The secret was
+rotated once the same day, after its first value had crossed a chat; the old
+value answers 401 and the new one `ok`. The statement in
 `DEPLOY.md` gained `timeout_milliseconds := 30000`: pg_net gives up after five
 seconds by default, and a tick with digests to send can take longer than that.
 Signing out, which had worked since Phase 3 without a test, has one now in
