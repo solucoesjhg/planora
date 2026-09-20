@@ -31,7 +31,7 @@ new account comes with a workspace and an example project.
 
 ```bash
 pnpm verify    # typecheck, lint, unit tests, build — what CI runs on every push
-pnpm test:db   # integration tests against the local Postgres
+pnpm test:db   # integration tests, in their own database (planora_test, created on first run)
 pnpm e2e       # Playwright, against a production build
 ```
 

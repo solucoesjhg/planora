@@ -10,6 +10,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.integration.test.ts"],
+    // Picks the suite's own database and creates it — never the app's.
+    globalSetup: ["src/server/test-support/global-setup.ts"],
     // One database, one writer: these tests share a schema.
     fileParallelism: false,
     testTimeout: 30_000,

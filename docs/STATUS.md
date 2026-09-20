@@ -391,10 +391,11 @@ São Paulo, Resend with the test sender. Henrique ran the checks in
   named `momentum` "Impulso", `stale` "Estagnada" and `insufficient_data` "Sem
   dados suficientes" before any screen showed them; the screen follows.
 - **The E2E global setup migrates its own database.** The suite's server
-  points at `planora_dev`; the integration harness migrates whatever
-  `DATABASE_URL` names. Phase 8 added a table, 86 integration tests passed,
-  and twenty E2E tests fell into the error boundary at once because nothing
-  had migrated the E2E database. Now the setup does, before the first request.
+  points at `planora_dev`; the integration harness migrated whatever
+  `DATABASE_URL` named (now `planora_test`, below). Phase 8 added a table, 86
+  integration tests passed, and twenty E2E tests fell into the error boundary
+  at once because nothing had migrated the E2E database. Now the setup does,
+  before the first request.
 - **A dimension's colour asks the domain which band it is in.** The bars in
   the health pane use `bandOf()` rather than thresholds of their own — the
   Phase 8 criterion is that no component calculates, and a colour threshold is
@@ -523,3 +524,14 @@ São Paulo, Resend with the test sender. Henrique ran the checks in
   before checking the new password; `henrique-zanella` is refused there as it
   is at sign-up. The endpoint refuses the token itself a moment later if it is
   bad, so the lookup decides nothing on its own.
+- **The integration suite has a database of its own.** Every suite truncates
+  every table before each test, and the harness ran against whatever
+  `DATABASE_URL` named — with `.env.local` exported that was `planora_dev`,
+  and one `pnpm test:db` wiped the seeded developer account and every project
+  on the board (2026-09-17). It now runs against `TEST_DATABASE_URL`, or
+  `DATABASE_URL` with the database renamed to `planora_test`, creates that
+  database on first run, and refuses — the run fails rather than skipping
+  quietly — any URL that is not on this machine or whose database name does
+  not end in `_test`. The E2E suite still runs against `planora_dev` on
+  purpose: it registers accounts through the screen and clears only the
+  rate-limit counters.
