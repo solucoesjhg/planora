@@ -159,10 +159,13 @@ functions never opened a transaction of their own and would have run unscoped.
 The policies do not trust the setting they read: `app.current_workspace()`
 resolves it through `workspace_members`, so a context naming a workspace the
 person is not in buys nothing, which is the failure the barrier is for.
-`planora_app` holds no `BYPASSRLS` and no grant on the identity tables;
-`planora_system` serves the four paths that cross workspaces by construction —
-Better Auth, the outbox and the clock, email and digests, and the first
-workspace an account gets — and an ESLint rule keeps that list from growing.
+`planora_app` holds no `BYPASSRLS` and no grant on the identity tables; the
+four paths that cross workspaces by construction — Better Auth, the outbox and
+the clock, email and digests, and the first workspace an account gets — run as
+the owner, and an ESLint rule keeps that list from growing. The first deploy
+of the phase failed on a second role, `planora_system`, that carried
+`BYPASSRLS`: on Postgres 15 only a superuser may create one, and Supabase's
+`postgres` is not. The role is gone; the owner already bypasses.
 A statement outside any lane raises rather than returning an empty result,
 because an empty board nobody reports for a week is the worse failure. Fifteen
 integration tests connect as the application role with no tenant check at all,
@@ -190,11 +193,10 @@ run, which is the argument for it existing.
 ## Next
 
 - **Turn the barrier on in production** (`docs/DEPLOY.md`, 7): give
-  `planora_app` and `planora_system` a password in Supabase, set
-  `APP_DATABASE_URL` and `SYSTEM_DATABASE_URL` in Vercel, redeploy, and check
-  that `pg_stat_activity` shows the restricted role. Until then the policies
-  ship and do not bite, which is how the phase was landed — one variable turns
-  it on, and the same one rolls it back.
+  `planora_app` a password in Supabase, set `APP_DATABASE_URL` in Vercel,
+  redeploy, and check that `pg_stat_activity` shows the restricted role. Until
+  then the policies ship and do not bite, which is how the phase was landed —
+  one variable turns it on, and the same one rolls it back.
 - Check that `SUPABASE_URL` is in Vercel's **build** environment, not only at
   runtime: the Content-Security-Policy names the bucket's origin at build time,
   and without it every attachment image is refused in production and nowhere

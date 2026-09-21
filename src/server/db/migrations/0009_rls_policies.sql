@@ -94,7 +94,7 @@ REVOKE ALL ON FUNCTION app.invited_workspace(), app.invited_by() FROM PUBLIC;
 --> statement-breakpoint
 
 GRANT EXECUTE ON FUNCTION app.invited_workspace(), app.invited_by()
-  TO planora_app, planora_system;
+  TO planora_app;
 --> statement-breakpoint
 
 -- `workspace_members` is the bootstrap: the DAL resolves which workspaces a
@@ -157,7 +157,7 @@ CREATE POLICY workspaces_tenant ON public.workspaces
 -- names a colleague, so `users` has to be readable — but only for yourself and
 -- for the people you share this workspace with. Without this policy a wrong
 -- tenant context reads the name and address of everybody in the deployment.
--- Nothing on the app lane writes a user: Better Auth does, on the system lane.
+-- Nothing on the app lane writes a user: Better Auth does, as the owner.
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint
 ALTER TABLE public.users FORCE ROW LEVEL SECURITY;

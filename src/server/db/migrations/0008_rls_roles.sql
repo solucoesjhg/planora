@@ -23,50 +23,37 @@ END
 $$;
 --> statement-breakpoint
 
--- The four paths that are cross-workspace by construction (ADR 0002): Better
--- Auth's own tables, the outbox dispatcher and the clock, email delivery and
--- digests, and the signup path that writes a person's first workspace and
--- membership before there is a membership to check them against.
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'planora_system') THEN
-    CREATE ROLE planora_system NOLOGIN BYPASSRLS;
-  END IF;
-END
-$$;
---> statement-breakpoint
-
+-- There is deliberately no second role here. The four paths that are
+-- cross-workspace by construction (ADR 0002) — Better Auth's own tables, the
+-- outbox dispatcher and the clock, email delivery and digests, and the signup
+-- path that writes a person's first workspace — run as the owner, which holds
+-- BYPASSRLS on Supabase and is a superuser locally. A `CREATE ROLE … BYPASSRLS`
+-- requires a superuser on Postgres 15, and Supabase's `postgres` is not one:
+-- the first production deploy of this phase failed on exactly that statement.
 -- A scope that awaits the network between two statements holds a pooler
 -- backend open; the services are written not to, and this is the backstop.
 ALTER ROLE planora_app SET idle_in_transaction_session_timeout = '10s';
 --> statement-breakpoint
 
--- The sentinel that makes a forgotten scope loud. It is deliberately not a
--- uuid: a statement that reaches the database outside any lane raises 22P02
--- rather than returning an empty result, because an empty board nobody reports
--- for a week is the worse failure.
-ALTER ROLE planora_app SET planora.workspace_id = 'unset';
---> statement-breakpoint
+-- No role-level default for `planora.workspace_id`, and not by choice:
+-- `ALTER ROLE … SET` on a custom parameter needs a superuser, and the owner
+-- that migrates a Supabase project is not one. The sentinel that makes a
+-- forgotten scope loud lives inside `app.current_workspace()` instead, where
+-- it needs no permission at all.
 
-ALTER ROLE planora_app SET planora.user_id = '';
---> statement-breakpoint
-
-GRANT USAGE ON SCHEMA public, app TO planora_app, planora_system;
+GRANT USAGE ON SCHEMA public, app TO planora_app;
 --> statement-breakpoint
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO planora_app;
 --> statement-breakpoint
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO planora_system;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO planora_app;
 --> statement-breakpoint
 
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO planora_app, planora_system;
---> statement-breakpoint
-
--- The identity tables are Better Auth's, and Better Auth runs on the system
--- lane. `planora_app` holding SELECT on `sessions` would mean a wrong tenant
--- context could read session tokens in plaintext, which is a larger prize than
--- the rows the barrier is protecting.
+-- The identity tables are Better Auth's, and Better Auth runs as the owner.
+-- `planora_app` holding SELECT on `sessions` would mean a wrong tenant context
+-- could read session tokens in plaintext, which is a larger prize than the
+-- rows the barrier is protecting.
 REVOKE ALL ON TABLE sessions, accounts, verifications, rate_limits FROM planora_app;
 --> statement-breakpoint
 
@@ -79,11 +66,11 @@ REVOKE INSERT, UPDATE, DELETE ON TABLE users FROM planora_app;
 -- A table added later inherits the grants rather than being forgotten. The
 -- catalog test in the suite is what catches the policy that goes with it.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO planora_app, planora_system;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO planora_app;
 --> statement-breakpoint
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  GRANT USAGE, SELECT ON SEQUENCES TO planora_app, planora_system;
+  GRANT USAGE, SELECT ON SEQUENCES TO planora_app;
 --> statement-breakpoint
 
 -- Who the request says it is. Unset yields NULL rather than raising, so the
@@ -106,6 +93,12 @@ $$;
 -- clause and one that catches a wrong `TenantContext`, which is the failure
 -- §2.4 says this barrier exists for.
 --
+-- When the setting is absent — a statement that reached the database outside
+-- any lane — the `coalesce` hands the cast the word `unset`, which is not a
+-- uuid, and the statement raises 22P02 rather than returning nothing. An empty
+-- board nobody reports for a week is the worse failure. The lanes that have no
+-- workspace set a uuid that is valid and matches no row, so they evaluate.
+--
 -- SECURITY DEFINER because the function reads `workspace_members`, which 0009
 -- policies and FORCEs: it must run as the owner, which bypasses RLS, or the
 -- policy would call the function that reads the table that applies the policy.
@@ -119,7 +112,7 @@ CREATE OR REPLACE FUNCTION app.current_workspace() RETURNS uuid
 AS $$
   SELECT m.workspace_id
   FROM public.workspace_members m
-  WHERE m.workspace_id = current_setting('planora.workspace_id', true)::uuid
+  WHERE m.workspace_id = coalesce(nullif(current_setting('planora.workspace_id', true), ''), 'unset')::uuid
     AND m.user_id = app.current_user_id()
 $$;
 --> statement-breakpoint
@@ -146,4 +139,4 @@ REVOKE ALL ON FUNCTION app.current_invitation() FROM PUBLIC;
 --> statement-breakpoint
 
 GRANT EXECUTE ON FUNCTION app.current_workspace(), app.current_user_id(), app.current_invitation()
-  TO planora_app, planora_system;
+  TO planora_app;

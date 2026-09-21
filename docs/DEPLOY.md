@@ -392,8 +392,9 @@ rather than being discovered halfway through a recovery:
   database dump contains, and the drill dumps with `--no-privileges` because the
   roles named in those grants do not exist on this machine. The policies and
   `FORCE ROW LEVEL SECURITY` **are** restored — the barrier comes back, the
-  roles it applies to do not. A recovery creates `planora_app` and
-  `planora_system` and re-applies their grants before the application connects.
+  role it applies to does not. A recovery re-runs migration `0008` — or its
+  statements by hand — so `planora_app` and its grants exist before the
+  application connects.
 - **Supabase's own `auth` and `storage` schemas**, which the platform rebuilds
   with a new project. This application keeps its accounts in its own `users`
   table, so that is no loss — it is why the dump covers only the schemas the
@@ -425,44 +426,48 @@ drill's real output: it is how you decide how often to run it.
 Phase 10 put a second barrier under the tenant check: policies on every
 business table, resolved through a membership lookup rather than through the
 setting the application supplies (ADR 0002). Migration `0008_rls_roles.sql`
-creates the two roles it needs; `0009_rls_policies.sql` writes the policies.
+creates the role it needs; `0009_rls_policies.sql` writes the policies.
 Both ship with the deployment, and **the barrier does nothing until the
 application connects as one of those roles**. That is deliberate: the scoping
 lands first, at its full cost, and one variable turns the database's own
 refusal on — or off again.
 
-### 7.1 Give the roles a password
+### 7.1 Give the role a password
 
-The migrations create `planora_app` and `planora_system` with no login and no
-password, because a migration lives in git. In the Supabase **SQL Editor**,
-with two secrets you generate yourself:
+The migration creates `planora_app` with no login and no password, because a
+migration lives in git. In the Supabase **SQL Editor**, with a secret you
+generate yourself:
 
 ```sql
-alter role planora_app    with login password '<app password>';
-alter role planora_system with login password '<system password>';
+alter role planora_app with login password '<app password>';
 ```
 
 `planora_app` has no `BYPASSRLS` and no grant at all on `sessions`, `accounts`,
-`verifications` or `rate_limits`. `planora_system` has `BYPASSRLS` and serves
-the four paths that are cross-workspace by construction. Neither owns anything,
-so migrations keep running as `postgres`.
+`verifications` or `rate_limits`. It owns nothing, so migrations keep running
+as `postgres`.
 
-### 7.2 Point the application at them
+There is no second role. The four paths that are cross-workspace by
+construction — Better Auth, the outbox and the clock, email and digests, the
+first workspace an account gets — run as `postgres` itself, which holds
+`BYPASSRLS` on Supabase. A role *with* `BYPASSRLS` can only be created by a
+superuser on Postgres 15, and Supabase's `postgres` is not one.
 
-Two more variables in Vercel → Settings → Environment Variables (Production),
-each the same pooler string as `DATABASE_URL` with the user and password
-swapped:
+### 7.2 Point the application at it
+
+One more variable in Vercel → Settings → Environment Variables (Production):
+the same pooler string as `DATABASE_URL` with the user and password swapped.
 
 | Name | Role |
 |---|---|
 | `APP_DATABASE_URL` | `planora_app` — every request |
-| `SYSTEM_DATABASE_URL` | `planora_system` — Better Auth, the outbox and the clock, email and digests, the first workspace an account gets |
 
 Redeploy. Supabase's pooler expects the user as `<role>.<project-ref>`, so the
-strings look like `postgresql://planora_app.abcdefgh:<password>@aws-0-sa-east-1.pooler.supabase.com:6543/postgres`.
+string looks like `postgresql://planora_app.abcdefgh:<password>@aws-0-sa-east-1.pooler.supabase.com:6543/postgres`.
 
-`MIGRATION_DATABASE_URL` does not change: migrations run as the owner, which is
-the whole point of the split.
+`DATABASE_URL` and `MIGRATION_DATABASE_URL` do not change: the system lane
+reads `SYSTEM_DATABASE_URL` and falls back to `DATABASE_URL`, which is already
+the owner. Set `SYSTEM_DATABASE_URL` only if you have a superuser and want a
+narrower `BYPASSRLS` role of your own.
 
 ### 7.3 Check it
 
@@ -485,9 +490,9 @@ Postgres.
 
 ### 7.4 Rolling it back
 
-Clear `APP_DATABASE_URL` and `SYSTEM_DATABASE_URL` and redeploy. Every request
-still opens its scope and applies its settings; the owner simply bypasses the
-policies. Nothing else changes, and no migration is reversed.
+Clear `APP_DATABASE_URL` and redeploy. Every request still opens its scope
+and applies its settings; the owner simply bypasses the policies. Nothing else
+changes, and no migration is reversed.
 
 ### What a restore does not bring back
 
@@ -510,7 +515,7 @@ a recovery repeats 7.1 and 7.2 before the application is pointed at it. See 6.5.
 | `SUPABASE_STORAGE_BUCKET` | `attachments` | |
 | `CRON_SECRET` | 32+ random characters | the scheduler route exists only with it (5) |
 | `APP_DATABASE_URL` | the pooler, as `planora_app` | turns the barrier on (7). Absent: the request still scopes, the owner bypasses the policies |
-| `SYSTEM_DATABASE_URL` | the pooler, as `planora_system` | the four cross-workspace paths (7) |
+| `SYSTEM_DATABASE_URL` | optional | the four cross-workspace paths (7); falls back to `DATABASE_URL`, which is the owner and already bypasses |
 | `RESEND_API_KEY` | Resend key | required in production |
 | `EMAIL_FROM` | must match a sender Resend allows | |
 
