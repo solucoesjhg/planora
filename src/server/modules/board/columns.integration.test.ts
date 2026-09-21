@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { and, asc, eq } from "drizzle-orm";
 import { isRefused } from "@/lib/result";
 import { tenantContext } from "@/server/auth/tenant";
-import type { Connection } from "@/server/db/client";
+import type { Connection, Transaction } from "@/server/db/client";
 import { boardColumns, tasks } from "@/server/db/schema";
 import { seed, seedIds } from "@/server/db/seed";
 import { connectAndMigrate, hasDatabase } from "@/server/test-support/database";
@@ -12,6 +12,16 @@ const suite = describe.skipIf(!hasDatabase);
 
 suite("columns", () => {
   let connection: Connection;
+
+  /**
+   * The scope a Server Action opens in production (ADR 0002). The suite holds a
+   * connection of its own, not the pool `withTenant` reaches for, so it opens
+   * the scope itself and hands the service the transaction — which is what the
+   * services now expect to be given.
+   */
+  const scoped = <T>(run: (tx: Transaction) => Promise<T>): Promise<T> =>
+    connection.db.transaction(run);
+
   const owner = () => tenantContext(seedIds.workspace, seedIds.user, "owner");
   const projectId = seedIds.projects[0];
 
@@ -35,11 +45,13 @@ suite("columns", () => {
       .orderBy(asc(boardColumns.position), asc(boardColumns.id));
 
   it("puts a new column beside the others of its phase", async () => {
-    const created = await createColumn(connection.db, owner(), {
-      projectId,
-      name: "Testes",
-      phase: "execution",
-    });
+    const created = await scoped((tx) =>
+      createColumn(tx, owner(), {
+        projectId,
+        name: "Testes",
+        phase: "execution",
+      }),
+    );
     expect(isRefused(created)).toBe(false);
 
     const phases = (await columnsOf()).map((column) => column.phase);
@@ -56,11 +68,13 @@ suite("columns", () => {
 
   it("refuses a second planning or done column", async () => {
     for (const phase of ["planning", "done"] as const) {
-      const result = await createColumn(connection.db, owner(), {
-        projectId,
-        name: "Outra",
-        phase: phase as "execution",
-      });
+      const result = await scoped((tx) =>
+        createColumn(tx, owner(), {
+          projectId,
+          name: "Outra",
+          phase: phase as "execution",
+        }),
+      );
       expect(isRefused(result) && result.reason).toBe("phase-taken");
     }
   });
@@ -70,10 +84,12 @@ suite("columns", () => {
       (column) => column.phase === "planning",
     );
 
-    const result = await renameColumn(connection.db, owner(), {
-      columnId: planning!.id,
-      name: "A fazer",
-    });
+    const result = await scoped((tx) =>
+      renameColumn(tx, owner(), {
+        columnId: planning!.id,
+        name: "A fazer",
+      }),
+    );
     expect(isRefused(result)).toBe(false);
 
     const [renamed] = (await columnsOf()).filter(
@@ -88,11 +104,13 @@ suite("columns", () => {
     const planning = columns.find((column) => column.phase === "planning")!;
     const done = columns.find((column) => column.phase === "done")!;
 
-    const deleted = await deleteColumn(connection.db, owner(), done.id);
-    const moved = await moveColumn(connection.db, owner(), {
-      columnId: planning.id,
-      afterId: done.id,
-    });
+    const deleted = await scoped((tx) => deleteColumn(tx, owner(), done.id));
+    const moved = await scoped((tx) =>
+      moveColumn(tx, owner(), {
+        columnId: planning.id,
+        afterId: done.id,
+      }),
+    );
 
     expect(isRefused(deleted) && deleted.reason).toBe("immutable-column");
     expect(isRefused(moved) && moved.reason).toBe("immutable-column");
@@ -104,40 +122,48 @@ suite("columns", () => {
       (column) => column.phase === "execution",
     )!;
 
-    const result = await deleteColumn(connection.db, owner(), execution.id);
+    const result = await scoped((tx) => deleteColumn(tx, owner(), execution.id));
     expect(isRefused(result) && result.reason).toBe("not-empty");
   });
 
   it("deletes an empty middle column", async () => {
-    const created = await createColumn(connection.db, owner(), {
-      projectId,
-      name: "Testes",
-      phase: "review",
-    });
+    const created = await scoped((tx) =>
+      createColumn(tx, owner(), {
+        projectId,
+        name: "Testes",
+        phase: "review",
+      }),
+    );
     if (isRefused(created)) throw new Error("expected a column");
 
-    const result = await deleteColumn(connection.db, owner(), created.value.columnId);
+    const result = await scoped((tx) =>
+      deleteColumn(tx, owner(), created.value.columnId),
+    );
     expect(isRefused(result)).toBe(false);
     expect(await columnsOf()).toHaveLength(4);
   });
 
   it("reorders a middle column without disturbing the ends", async () => {
-    const created = await createColumn(connection.db, owner(), {
-      projectId,
-      name: "Testes",
-      phase: "review",
-    });
+    const created = await scoped((tx) =>
+      createColumn(tx, owner(), {
+        projectId,
+        name: "Testes",
+        phase: "review",
+      }),
+    );
     if (isRefused(created)) throw new Error("expected a column");
 
     const columns = await columnsOf();
     const execution = columns.find((column) => column.phase === "execution")!;
     const planning = columns.find((column) => column.phase === "planning")!;
 
-    const moved = await moveColumn(connection.db, owner(), {
-      columnId: created.value.columnId,
-      afterId: planning.id,
-      beforeId: execution.id,
-    });
+    const moved = await scoped((tx) =>
+      moveColumn(tx, owner(), {
+        columnId: created.value.columnId,
+        afterId: planning.id,
+        beforeId: execution.id,
+      }),
+    );
     expect(isRefused(moved)).toBe(false);
 
     const names = (await columnsOf()).map((column) => column.name);
@@ -149,11 +175,13 @@ suite("columns", () => {
   it("refuses a member who cannot manage columns", async () => {
     const member = tenantContext(seedIds.workspace, seedIds.user, "member");
 
-    const result = await createColumn(connection.db, member, {
-      projectId,
-      name: "Testes",
-      phase: "execution",
-    });
+    const result = await scoped((tx) =>
+      createColumn(tx, member, {
+        projectId,
+        name: "Testes",
+        phase: "execution",
+      }),
+    );
 
     expect(isRefused(result) && result.reason).toBe("forbidden");
   });

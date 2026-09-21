@@ -9,6 +9,7 @@ import { Field, Input } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { deleteProjectAction } from "@/server/modules/projects/actions";
 import { deleteWorkspaceAction } from "@/server/modules/workspaces/actions";
+import { RATE_LIMITED } from "@/lib/strings";
 
 export type DeletableProject = { readonly id: string; readonly name: string };
 
@@ -51,7 +52,12 @@ export function DangerZone({
       if (target.kind === "project") {
         const result = await deleteProjectAction({ projectId: target.project.id });
         if (!result.ok) {
-          toast.add({ title: "Não deu para apagar o projeto." });
+          toast.add({
+            title:
+              result.reason === "rate-limited"
+                ? RATE_LIMITED
+                : "Não deu para apagar o projeto.",
+          });
           return;
         }
         toast.add({ title: `${target.project.name} foi apagado.` });
@@ -67,7 +73,9 @@ export function DangerZone({
           title:
             result.reason === "mismatch"
               ? "O nome não confere."
-              : "Seu papel não permite apagar o espaço de trabalho.",
+              : result.reason === "rate-limited"
+                ? RATE_LIMITED
+                : "Seu papel não permite apagar o espaço de trabalho.",
         });
       }
     });

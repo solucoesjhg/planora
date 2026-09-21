@@ -10,7 +10,7 @@ import { type HealthReport, type TaskSignal, type Trend, type Verdict, VERDICTS 
 import { type ProjectProgress, projectProgress } from "@/domain/progress";
 import { PHASES, type CalendarDate, type Phase, liveTasks, phaseOf } from "@/domain/types";
 import type { TenantContext } from "@/server/auth/tenant";
-import type { Database } from "@/server/db/client";
+import type { Executor } from "@/server/db/client";
 import { type ActivityEntry, latestActivity } from "@/server/modules/activity/repository";
 import { loadBoardView, toDomainContext } from "@/server/modules/board/view";
 import { evaluateProjectHealth } from "@/server/modules/health/service";
@@ -50,7 +50,7 @@ export type Dashboard = {
 };
 
 export async function loadDashboard(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   now: Date = new Date(),
 ): Promise<Dashboard> {

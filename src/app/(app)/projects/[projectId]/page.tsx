@@ -7,7 +7,7 @@ import { NewColumnDialog } from "@/features/board/new-column-dialog";
 import { HealthPanel } from "@/features/health/health-panel";
 import { HealthSummary } from "@/features/health/health-summary";
 import { requireWorkspace } from "@/server/auth/dal";
-import { getDatabase } from "@/server/db/client";
+import { withTenant } from "@/server/db/client";
 import { dispatchSoon } from "@/server/events/dispatch-soon";
 import { loadBoardView, toDomainContext } from "@/server/modules/board/view";
 import { evaluateProjectHealth } from "@/server/modules/health/service";
@@ -20,19 +20,28 @@ export default async function BoardPage({
 }: PageProps<"/projects/[projectId]">) {
   const { projectId } = await params;
   const workspace = await requireWorkspace();
-  const database = getDatabase();
 
-  const [view, project, projects] = await Promise.all([
-    loadBoardView(database, workspace, projectId),
-    findProject(database, workspace, projectId),
-    listProjects(database, workspace),
-  ]);
-  if (!view || !project) notFound();
+  // One scope for the three reads and the evaluation they feed, not one each
+  // (ADR 0002): the queries still go out together, and the snapshot is written
+  // from what they returned. A board that is not there comes back as null so
+  // that `notFound()` throws outside the scope, not as a rollback.
+  const loaded = await withTenant(workspace, async (tx) => {
+    const [view, project, projects] = await Promise.all([
+      loadBoardView(tx, workspace, projectId),
+      findProject(tx, workspace, projectId),
+      listProjects(tx, workspace),
+    ]);
+    if (!view || !project) return null;
 
-  // Reading a project is what evaluates it until Phase 9's clock exists
-  // (§3.5): today's snapshot row is written here, idempotently.
-  const board = toDomainContext(view);
-  const health = await evaluateProjectHealth(database, workspace, project, board);
+    // Reading a project is what evaluates it until Phase 9's clock exists
+    // (§3.5): today's snapshot row is written here, idempotently.
+    const board = toDomainContext(view);
+    const health = await evaluateProjectHealth(tx, workspace, project, board);
+    return { view, projects, board, health };
+  });
+  if (!loaded) notFound();
+
+  const { view, projects, board, health } = loaded;
   if (health.changed) dispatchSoon();
 
   return (

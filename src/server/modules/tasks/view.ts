@@ -2,7 +2,7 @@ import "server-only";
 
 import type { Priority } from "@/domain/types";
 import { can, type TenantContext } from "@/server/auth/tenant";
-import type { Database } from "@/server/db/client";
+import type { Executor } from "@/server/db/client";
 import { attachmentUrl } from "./attachments";
 import { membersOf } from "@/server/modules/workspaces/repository";
 import { loadTaskDocument, tasksOfProject } from "./repository";
@@ -88,7 +88,7 @@ export type TaskView = {
 };
 
 export async function loadTaskView(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   taskId: string,
 ): Promise<TaskView | null> {

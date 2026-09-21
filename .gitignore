@@ -45,3 +45,9 @@ next-env.d.ts
 /playwright-report/
 /test-results/
 .storage/
+
+# the restore drill's dumps. A production dump is a copy of every account,
+# every board and every address in the application; it is the most sensitive
+# file this machine will hold, and it is never a commit away from being public.
+/backups/
+*.dump

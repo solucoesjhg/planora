@@ -57,6 +57,20 @@
       "when": 1789515147029,
       "tag": "0007_automations",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789966347098,
+      "tag": "0008_rls_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789966348098,
+      "tag": "0009_rls_policies",
+      "breakpoints": true
     }
   ]
 }

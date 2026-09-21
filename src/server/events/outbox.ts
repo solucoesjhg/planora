@@ -8,31 +8,16 @@
  * why the table exists now rather than then.
  */
 
+import type { EventType } from "@/lib/events";
 import type { Executor } from "@/server/db/client";
 import { outboxEvents } from "@/server/db/schema";
 
-export const EVENT_TYPES = [
-  "project.created",
-  "project.completed",
-  "project.reopened",
-  "task.created",
-  "task.moved",
-  "task.blocked",
-  "task.unblocked",
-  "task.completed",
-  "task.assigned",
-  "checklist.completed",
-  "comment.added",
-  "dependency.resolved",
-  "project.health_changed",
-  "member.invited",
-  // The clock's own events (§7 Phase 9): one per task per day at most.
-  "task.due_soon",
-  "task.overdue",
-  "task.stalled",
-] as const;
-
-export type EventType = (typeof EVENT_TYPES)[number];
+/**
+ * The catalogue itself is pure and lives in `lib/`, so the feed and the
+ * automations can name an event without importing the database. It is
+ * re-exported here because this is where a writer looks for it.
+ */
+export { EVENT_TYPES, type EventType } from "@/lib/events";
 
 export type ActorKind = "user" | "automation" | "ai";
 

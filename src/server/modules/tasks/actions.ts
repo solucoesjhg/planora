@@ -6,7 +6,7 @@ import { z } from "zod";
 import { PRIORITIES } from "@/domain/types";
 import { isRefused } from "@/lib/result";
 import { requireWorkspace } from "@/server/auth/dal";
-import { getDatabase } from "@/server/db/client";
+import { consumeAllowance, writing, type Limited } from "@/server/limits";
 import { getStorage } from "@/server/storage";
 import {
   attachmentUrl,
@@ -36,6 +36,18 @@ export type ActionResult<Failure, Value = undefined> =
   | { readonly ok: true; readonly value: Value }
   | { readonly ok: false; readonly reason: Failure; readonly detail?: string };
 
+/**
+ * Every action here writes, so every one of them goes through `writing`: the
+ * allowance first, the scope second, and the service underneath handed the
+ * transaction it opened (ADR 0002, §7 Phase 10). A refused request never opens
+ * a transaction, which is why `rate-limited` joins each failure type rather
+ * than arriving as a thrown error.
+ *
+ * All fourteen count against the `write` allowance. None of them reaches
+ * anybody's inbox by itself: an assignment leaves an event, and it is the
+ * dispatcher that decides whether an email follows.
+ */
+
 const uuid = z.uuid();
 const priority = z.enum(PRIORITIES);
 const isoDate = z.iso.date().nullable();
@@ -56,11 +68,13 @@ const createSchema = z.object({
 
 export async function createTaskAction(
   input: z.input<typeof createSchema>,
-): Promise<ActionResult<TaskFailure, { taskId: string; number: number }>> {
+): Promise<ActionResult<Limited<TaskFailure>, { taskId: string; number: number }>> {
   const parsed = createSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await createTask(getDatabase(), context, parsed);
+  const result = await writing(context, "write", (tx) =>
+    createTask(tx, context, parsed),
+  );
   if (isRefused(result)) return failure(result);
 
   refresh(parsed.projectId);
@@ -82,23 +96,25 @@ const updateSchema = z.object({
 
 export async function updateTaskAction(
   input: z.input<typeof updateSchema>,
-): Promise<ActionResult<TaskFailure>> {
+): Promise<ActionResult<Limited<TaskFailure>>> {
   const parsed = updateSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await updateTask(getDatabase(), context, {
-    taskId: parsed.taskId,
-    ...(parsed.title === undefined ? {} : { title: parsed.title }),
-    ...(parsed.body === undefined ? {} : { body: parsed.body }),
-    ...(parsed.internalNotes === undefined
-      ? {}
-      : { internalNotes: parsed.internalNotes }),
-    ...(parsed.priority === undefined ? {} : { priority: parsed.priority }),
-    ...(parsed.startDate === undefined ? {} : { startDate: parsed.startDate }),
-    ...(parsed.dueDate === undefined ? {} : { dueDate: parsed.dueDate }),
-    ...(parsed.blocked === undefined ? {} : { blocked: parsed.blocked }),
-    ...(parsed.blockReason === undefined ? {} : { blockReason: parsed.blockReason }),
-  });
+  const result = await writing(context, "write", (tx) =>
+    updateTask(tx, context, {
+      taskId: parsed.taskId,
+      ...(parsed.title === undefined ? {} : { title: parsed.title }),
+      ...(parsed.body === undefined ? {} : { body: parsed.body }),
+      ...(parsed.internalNotes === undefined
+        ? {}
+        : { internalNotes: parsed.internalNotes }),
+      ...(parsed.priority === undefined ? {} : { priority: parsed.priority }),
+      ...(parsed.startDate === undefined ? {} : { startDate: parsed.startDate }),
+      ...(parsed.dueDate === undefined ? {} : { dueDate: parsed.dueDate }),
+      ...(parsed.blocked === undefined ? {} : { blocked: parsed.blocked }),
+      ...(parsed.blockReason === undefined ? {} : { blockReason: parsed.blockReason }),
+    }),
+  );
   if (isRefused(result)) return failure(result);
 
   refresh(parsed.projectId, parsed.taskId);
@@ -117,14 +133,16 @@ const assignSchema = z.object({
 
 export async function setAssigneesAction(
   input: z.input<typeof assignSchema>,
-): Promise<ActionResult<AssignFailure>> {
+): Promise<ActionResult<Limited<AssignFailure>>> {
   const parsed = assignSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await assignTask(getDatabase(), context, {
-    taskId: parsed.taskId,
-    userIds: parsed.userIds,
-  });
+  const result = await writing(context, "write", (tx) =>
+    assignTask(tx, context, {
+      taskId: parsed.taskId,
+      userIds: parsed.userIds,
+    }),
+  );
   if (isRefused(result)) return failure(result);
 
   refresh(parsed.projectId, parsed.taskId);
@@ -143,11 +161,13 @@ const checklistAddSchema = z.object({
 
 export async function addChecklistItemAction(
   input: z.input<typeof checklistAddSchema>,
-): Promise<ActionResult<TaskFailure, { itemId: string }>> {
+): Promise<ActionResult<Limited<TaskFailure>, { itemId: string }>> {
   const parsed = checklistAddSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await addChecklistItem(getDatabase(), context, parsed);
+  const result = await writing(context, "write", (tx) =>
+    addChecklistItem(tx, context, parsed),
+  );
   if (isRefused(result)) return failure(result);
 
   refresh(parsed.projectId, parsed.taskId);
@@ -164,15 +184,17 @@ const checklistSetSchema = z.object({
 
 export async function setChecklistItemAction(
   input: z.input<typeof checklistSetSchema>,
-): Promise<ActionResult<TaskFailure, { checklistCompleted: boolean }>> {
+): Promise<ActionResult<Limited<TaskFailure>, { checklistCompleted: boolean }>> {
   const parsed = checklistSetSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await setChecklistItem(getDatabase(), context, {
-    itemId: parsed.itemId,
-    ...(parsed.done === undefined ? {} : { done: parsed.done }),
-    ...(parsed.title === undefined ? {} : { title: parsed.title }),
-  });
+  const result = await writing(context, "write", (tx) =>
+    setChecklistItem(tx, context, {
+      itemId: parsed.itemId,
+      ...(parsed.done === undefined ? {} : { done: parsed.done }),
+      ...(parsed.title === undefined ? {} : { title: parsed.title }),
+    }),
+  );
   if (isRefused(result)) return failure(result);
 
   refresh(parsed.projectId, parsed.taskId);
@@ -187,11 +209,13 @@ const checklistRemoveSchema = z.object({
 
 export async function removeChecklistItemAction(
   input: z.input<typeof checklistRemoveSchema>,
-): Promise<ActionResult<TaskFailure>> {
+): Promise<ActionResult<Limited<TaskFailure>>> {
   const parsed = checklistRemoveSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await removeChecklistItem(getDatabase(), context, parsed.itemId);
+  const result = await writing(context, "write", (tx) =>
+    removeChecklistItem(tx, context, parsed.itemId),
+  );
   if (isRefused(result)) return failure(result);
 
   refresh(parsed.projectId, parsed.taskId);
@@ -210,14 +234,16 @@ const dependencySchema = z.object({
 
 export async function addDependencyAction(
   input: z.input<typeof dependencySchema>,
-): Promise<ActionResult<DependencyFailure>> {
+): Promise<ActionResult<Limited<DependencyFailure>>> {
   const parsed = dependencySchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await addDependency(getDatabase(), context, {
-    taskId: parsed.taskId,
-    dependsOnId: parsed.dependsOnId,
-  });
+  const result = await writing(context, "write", (tx) =>
+    addDependency(tx, context, {
+      taskId: parsed.taskId,
+      dependsOnId: parsed.dependsOnId,
+    }),
+  );
   if (isRefused(result)) return failure(result);
 
   refresh(parsed.projectId, parsed.taskId);
@@ -232,11 +258,13 @@ const dependencyRemoveSchema = z.object({
 
 export async function removeDependencyAction(
   input: z.input<typeof dependencyRemoveSchema>,
-): Promise<ActionResult<TaskFailure>> {
+): Promise<ActionResult<Limited<TaskFailure>>> {
   const parsed = dependencyRemoveSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await removeDependency(getDatabase(), context, parsed.dependencyId);
+  const result = await writing(context, "write", (tx) =>
+    removeDependency(tx, context, parsed.dependencyId),
+  );
   if (isRefused(result)) return failure(result);
 
   refresh(parsed.projectId, parsed.taskId);
@@ -255,14 +283,16 @@ const commentSchema = z.object({
 
 export async function addCommentAction(
   input: z.input<typeof commentSchema>,
-): Promise<ActionResult<TaskFailure, { commentId: string }>> {
+): Promise<ActionResult<Limited<TaskFailure>, { commentId: string }>> {
   const parsed = commentSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await addComment(getDatabase(), context, {
-    taskId: parsed.taskId,
-    body: parsed.body,
-  });
+  const result = await writing(context, "write", (tx) =>
+    addComment(tx, context, {
+      taskId: parsed.taskId,
+      body: parsed.body,
+    }),
+  );
   if (isRefused(result)) return failure(result);
 
   refresh(parsed.projectId, parsed.taskId);
@@ -278,14 +308,16 @@ const commentEditSchema = z.object({
 
 export async function editCommentAction(
   input: z.input<typeof commentEditSchema>,
-): Promise<ActionResult<TaskFailure>> {
+): Promise<ActionResult<Limited<TaskFailure>>> {
   const parsed = commentEditSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await editComment(getDatabase(), context, {
-    commentId: parsed.commentId,
-    body: parsed.body,
-  });
+  const result = await writing(context, "write", (tx) =>
+    editComment(tx, context, {
+      commentId: parsed.commentId,
+      body: parsed.body,
+    }),
+  );
   if (isRefused(result)) return failure(result);
 
   refresh(parsed.projectId, parsed.taskId);
@@ -300,11 +332,13 @@ const commentRemoveSchema = z.object({
 
 export async function removeCommentAction(
   input: z.input<typeof commentRemoveSchema>,
-): Promise<ActionResult<TaskFailure>> {
+): Promise<ActionResult<Limited<TaskFailure>>> {
   const parsed = commentRemoveSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await removeComment(getDatabase(), context, parsed.commentId);
+  const result = await writing(context, "write", (tx) =>
+    removeComment(tx, context, parsed.commentId),
+  );
   if (isRefused(result)) return failure(result);
 
   refresh(parsed.projectId, parsed.taskId);
@@ -313,7 +347,14 @@ export async function removeCommentAction(
 
 /* ------------------------------------------------------------------ *
  * Attachments
- * ------------------------------------------------------------------ */
+ * ------------------------------------------------------------------ *
+ *
+ * These three are the exception to `writing`, and the reason is in
+ * `attachments.ts`: each of them waits on the store between two statements, so
+ * there is no single scope to put them in. They take the allowance themselves
+ * — the same counter, the same bucket, in the same place in the order — and
+ * hand the pool to a function that opens a scope per statement instead.
+ */
 
 const uploadSchema = z.object({
   projectId: uuid,
@@ -327,7 +368,7 @@ export async function requestUploadAction(
   input: z.input<typeof uploadSchema>,
 ): Promise<
   ActionResult<
-    AttachmentFailure,
+    Limited<AttachmentFailure>,
     {
       attachmentId: string;
       url: string;
@@ -339,7 +380,10 @@ export async function requestUploadAction(
   const parsed = uploadSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await requestUpload(getDatabase(), context, getStorage(), parsed);
+  const allowance = await consumeAllowance("write", context.userId);
+  if (isRefused(allowance)) return failure(allowance);
+
+  const result = await requestUpload(null, context, getStorage(), parsed);
   if (isRefused(result)) return failure(result);
 
   return {
@@ -361,12 +405,15 @@ const confirmSchema = z.object({
 
 export async function confirmUploadAction(
   input: z.input<typeof confirmSchema>,
-): Promise<ActionResult<AttachmentFailure, { url: string }>> {
+): Promise<ActionResult<Limited<AttachmentFailure>, { url: string }>> {
   const parsed = confirmSchema.parse(input);
   const context = await requireWorkspace();
 
+  const allowance = await consumeAllowance("write", context.userId);
+  if (isRefused(allowance)) return failure(allowance);
+
   const confirmed = await confirmUpload(
-    getDatabase(),
+    null,
     context,
     getStorage(),
     parsed.attachmentId,
@@ -388,12 +435,15 @@ const attachmentSchema = z.object({
 
 export async function removeAttachmentAction(
   input: z.input<typeof attachmentSchema>,
-): Promise<ActionResult<AttachmentFailure>> {
+): Promise<ActionResult<Limited<AttachmentFailure>>> {
   const parsed = attachmentSchema.parse(input);
   const context = await requireWorkspace();
 
+  const allowance = await consumeAllowance("write", context.userId);
+  if (isRefused(allowance)) return failure(allowance);
+
   const result = await removeAttachment(
-    getDatabase(),
+    null,
     context,
     getStorage(),
     parsed.attachmentId,

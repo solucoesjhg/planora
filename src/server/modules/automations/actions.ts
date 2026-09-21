@@ -7,7 +7,7 @@ import { VERDICTS } from "@/domain/health";
 import { PHASES, PRIORITIES } from "@/domain/types";
 import { isRefused } from "@/lib/result";
 import { requireWorkspace } from "@/server/auth/dal";
-import { getDatabase } from "@/server/db/client";
+import { writing, type Limited } from "@/server/limits";
 import {
   createAutomation,
   deleteAutomation,
@@ -17,7 +17,11 @@ import {
 
 export type AutomationActionResult<Value = undefined> =
   | { readonly ok: true; readonly value: Value }
-  | { readonly ok: false; readonly reason: AutomationFailure; readonly detail?: string };
+  | {
+      readonly ok: false;
+      readonly reason: Limited<AutomationFailure>;
+      readonly detail?: string;
+    };
 
 const uuid = z.uuid();
 
@@ -62,12 +66,14 @@ export async function createAutomationAction(
   const parsed = ruleSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await createAutomation(getDatabase(), context, {
-    name: parsed.name,
-    trigger: parsed.trigger,
-    conditions: parsed.conditions as Condition[],
-    actions: parsed.actions as Action[],
-  });
+  const result = await writing(context, "write", (tx) =>
+    createAutomation(tx, context, {
+      name: parsed.name,
+      trigger: parsed.trigger,
+      conditions: parsed.conditions as Condition[],
+      actions: parsed.actions as Action[],
+    }),
+  );
   if (isRefused(result)) return failure(result);
 
   revalidatePath("/settings/automations");
@@ -81,9 +87,10 @@ export async function setAutomationEnabledAction(input: {
   const automationId = uuid.parse(input.automationId);
   const context = await requireWorkspace();
 
-  const result = await updateAutomation(getDatabase(), context, automationId, {
-    enabled: z.boolean().parse(input.enabled),
-  });
+  const enabled = z.boolean().parse(input.enabled);
+  const result = await writing(context, "write", (tx) =>
+    updateAutomation(tx, context, automationId, { enabled }),
+  );
   if (isRefused(result)) return failure(result);
 
   revalidatePath("/settings/automations");
@@ -96,14 +103,19 @@ export async function deleteAutomationAction(input: {
   const automationId = uuid.parse(input.automationId);
   const context = await requireWorkspace();
 
-  const result = await deleteAutomation(getDatabase(), context, automationId);
+  const result = await writing(context, "write", (tx) =>
+    deleteAutomation(tx, context, automationId),
+  );
   if (isRefused(result)) return failure(result);
 
   revalidatePath("/settings/automations");
   return { ok: true, value: undefined };
 }
 
-function failure(result: { reason: AutomationFailure; detail?: string }): AutomationActionResult<never> {
+function failure(result: {
+  reason: Limited<AutomationFailure>;
+  detail?: string;
+}): AutomationActionResult<never> {
   return result.detail === undefined
     ? { ok: false, reason: result.reason }
     : { ok: false, reason: result.reason, detail: result.detail };

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { isRefused } from "@/lib/result";
 import { tenantContext } from "@/server/auth/tenant";
-import type { Connection } from "@/server/db/client";
+import type { Connection, Transaction } from "@/server/db/client";
 import { boardColumns, clients, projects, tasks } from "@/server/db/schema";
 import { seed, seedIds } from "@/server/db/seed";
 import { connectAndMigrate, hasDatabase } from "@/server/test-support/database";
@@ -18,6 +18,16 @@ const suite = describe.skipIf(!hasDatabase);
 
 suite("projects", () => {
   let connection: Connection;
+
+  /**
+   * The scope a Server Action opens in production (ADR 0002). The suite holds a
+   * connection of its own, not the pool `withTenant` reaches for, so it opens
+   * the scope itself and hands the service the transaction — which is what the
+   * services now expect to be given.
+   */
+  const scoped = <T>(run: (tx: Transaction) => Promise<T>): Promise<T> =>
+    connection.db.transaction(run);
+
   const owner = () => tenantContext(seedIds.workspace, seedIds.user, "owner");
 
   beforeAll(async () => {
@@ -33,10 +43,12 @@ suite("projects", () => {
   });
 
   it("gives a new project its four phases, one planning and one done", async () => {
-    const created = await createProject(connection.db, owner(), {
-      name: "Obra nova",
-      clientName: "Construtora Sul",
-    });
+    const created = await scoped((tx) =>
+      createProject(tx, owner(), {
+        name: "Obra nova",
+        clientName: "Construtora Sul",
+      }),
+    );
     if (isRefused(created)) throw new Error("expected a project");
 
     const columns = await connection.db
@@ -50,14 +62,18 @@ suite("projects", () => {
   });
 
   it("creates the client once, however many projects name it", async () => {
-    await createProject(connection.db, owner(), {
-      name: "Um",
-      clientName: "Construtora Sul",
-    });
-    await createProject(connection.db, owner(), {
-      name: "Dois",
-      clientName: "  Construtora Sul  ",
-    });
+    await scoped((tx) =>
+      createProject(tx, owner(), {
+        name: "Um",
+        clientName: "Construtora Sul",
+      }),
+    );
+    await scoped((tx) =>
+      createProject(tx, owner(), {
+        name: "Dois",
+        clientName: "  Construtora Sul  ",
+      }),
+    );
 
     const rows = await connection.db
       .select()
@@ -70,9 +86,11 @@ suite("projects", () => {
 
   it("refuses to finish a project that still has blocked work, and writes nothing", async () => {
     // The seed leaves TSK-2 blocked in the first project.
-    const result = await completeProject(connection.db, owner(), {
-      projectId: seedIds.projects[0],
-    });
+    const result = await scoped((tx) =>
+      completeProject(tx, owner(), {
+        projectId: seedIds.projects[0],
+      }),
+    );
 
     expect(isRefused(result) && result.reason).toBe("blocked-tasks");
 
@@ -84,17 +102,19 @@ suite("projects", () => {
   });
 
   it("does not let the open-work acknowledgement cover blocked work", async () => {
-    const forced = await completeProject(connection.db, owner(), {
-      projectId: seedIds.projects[0],
-      ack: "open-work",
-    });
+    const forced = await scoped((tx) =>
+      completeProject(tx, owner(), {
+        projectId: seedIds.projects[0],
+        ack: "open-work",
+      }),
+    );
 
     expect(isRefused(forced) && forced.reason).toBe("blocked-tasks");
   });
 
   it("asks about open work, finishes when told to, and reopens", async () => {
     // A project of its own, with one open task and nothing blocked.
-    const created = await createProject(connection.db, owner(), { name: "Curto" });
+    const created = await scoped((tx) => createProject(tx, owner(), { name: "Curto" }));
     if (isRefused(created)) throw new Error("expected a project");
     const projectId = created.value.projectId;
 
@@ -118,14 +138,16 @@ suite("projects", () => {
       createdBy: seedIds.user,
     });
 
-    const asked = await completeProject(connection.db, owner(), { projectId });
+    const asked = await scoped((tx) => completeProject(tx, owner(), { projectId }));
     expect(isRefused(asked) && asked.reason).toBe("open-work");
     expect(isRefused(asked) && asked.detail).toBe("1");
 
-    const forced = await completeProject(connection.db, owner(), {
-      projectId,
-      ack: "open-work",
-    });
+    const forced = await scoped((tx) =>
+      completeProject(tx, owner(), {
+        projectId,
+        ack: "open-work",
+      }),
+    );
     expect(isRefused(forced)).toBe(false);
 
     const [completed] = await connection.db
@@ -134,7 +156,7 @@ suite("projects", () => {
       .where(eq(projects.id, projectId));
     expect(completed?.status).toBe("completed");
 
-    const reopened = await reopenProject(connection.db, owner(), projectId);
+    const reopened = await scoped((tx) => reopenProject(tx, owner(), projectId));
     expect(isRefused(reopened)).toBe(false);
 
     const [active] = await connection.db
@@ -151,11 +173,13 @@ suite("projects", () => {
     const [first, second] = before;
     expect(before).toHaveLength(2);
 
-    const moved = await moveProject(connection.db, owner(), {
-      projectId: second!.id,
-      afterId: null,
-      beforeId: first!.id,
-    });
+    const moved = await scoped((tx) =>
+      moveProject(tx, owner(), {
+        projectId: second!.id,
+        afterId: null,
+        beforeId: first!.id,
+      }),
+    );
     expect(isRefused(moved)).toBe(false);
 
     const after = await listProjects(connection.db, owner());
@@ -177,10 +201,12 @@ suite("projects", () => {
     const viewer = tenantContext(seedIds.workspace, seedIds.user, "viewer");
     const stranger = tenantContext(seedIds.projects[1], seedIds.user, "owner");
 
-    const byViewer = await createProject(connection.db, viewer, { name: "Nada" });
-    const byStranger = await completeProject(connection.db, stranger, {
-      projectId: seedIds.projects[0],
-    });
+    const byViewer = await scoped((tx) => createProject(tx, viewer, { name: "Nada" }));
+    const byStranger = await scoped((tx) =>
+      completeProject(tx, stranger, {
+        projectId: seedIds.projects[0],
+      }),
+    );
 
     expect(isRefused(byViewer) && byViewer.reason).toBe("forbidden");
     expect(isRefused(byStranger) && byStranger.reason).toBe("not-found");

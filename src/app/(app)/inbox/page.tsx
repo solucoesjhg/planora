@@ -3,7 +3,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { InboxList } from "@/features/notifications/inbox-list";
 import { AccountBar } from "@/features/workspace/account-bar";
 import { requireWorkspace } from "@/server/auth/dal";
-import { getDatabase } from "@/server/db/client";
+import { withTenant } from "@/server/db/client";
 import { listInbox } from "@/server/modules/notifications/repository";
 
 /**
@@ -12,7 +12,7 @@ import { listInbox } from "@/server/modules/notifications/repository";
  */
 export default async function InboxPage() {
   const workspace = await requireWorkspace();
-  const rows = await listInbox(getDatabase(), workspace, 100);
+  const rows = await withTenant(workspace, (tx) => listInbox(tx, workspace, 100));
 
   return (
     <AppShell

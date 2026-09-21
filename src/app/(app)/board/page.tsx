@@ -6,7 +6,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { requireWorkspace } from "@/server/auth/dal";
-import { getDatabase } from "@/server/db/client";
+import { withTenant } from "@/server/db/client";
 import { listProjects } from "@/server/modules/projects/repository";
 import { AccountBar } from "@/features/workspace/account-bar";
 import { LAST_BOARD_COOKIE } from "@/lib/last-board";
@@ -20,7 +20,7 @@ import { LAST_BOARD_COOKIE } from "@/lib/last-board";
  */
 export default async function BoardIndexPage() {
   const workspace = await requireWorkspace();
-  const projects = await listProjects(getDatabase(), workspace);
+  const projects = await withTenant(workspace, (tx) => listProjects(tx, workspace));
 
   const active = projects.filter((project) => project.status === "active");
   const remembered = (await cookies()).get(LAST_BOARD_COOKIE)?.value;

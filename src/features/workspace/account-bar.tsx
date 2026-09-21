@@ -1,7 +1,7 @@
 import { AccountMenu } from "@/app/(app)/dashboard/account-menu";
 import { InboxBell } from "@/features/notifications/inbox-bell";
 import { requireSession, requireWorkspace } from "@/server/auth/dal";
-import { getDatabase } from "@/server/db/client";
+import { withUser } from "@/server/db/client";
 import { membershipsOf } from "@/server/modules/workspaces/repository";
 
 /**
@@ -14,7 +14,13 @@ import { membershipsOf } from "@/server/modules/workspaces/repository";
 export async function AccountBar() {
   const session = await requireSession();
   const current = await requireWorkspace();
-  const memberships = await membershipsOf(getDatabase(), session.userId);
+  // Which workspaces somebody may switch to is a question asked of the person,
+  // not of a workspace, so it goes down the bootstrap lane rather than the
+  // tenant one (ADR 0002) — the current workspace above is what the bell and
+  // the check mark need, not what bounds this list.
+  const memberships = await withUser(session.userId, (tx) =>
+    membershipsOf(tx, session.userId),
+  );
 
   return (
     <div className="flex items-center gap-1">

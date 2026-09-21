@@ -16,6 +16,7 @@
     "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "db:migrate": "drizzle-kit migrate",
     "db:seed:dev": "node --env-file=.env.local --import tsx scripts/seed-dev-account.ts",
+    "db:restore-drill": "node --env-file-if-exists=.env.local --import tsx scripts/restore-drill.ts",
     "vercel-build": "node scripts/migrate.mjs && next build"
   },
   "dependencies": {

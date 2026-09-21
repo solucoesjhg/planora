@@ -47,6 +47,15 @@ export function withDatabaseName(url: string, name: string): string {
   return parsed.toString();
 }
 
+/** The same database, reached as somebody else: the barrier's own test needs it. */
+export function withCredentials(url: string, user: string, password: string): string {
+  const parsed = parse(url);
+  if (!parsed) return url;
+  parsed.username = encodeURIComponent(user);
+  parsed.password = encodeURIComponent(password);
+  return parsed.toString();
+}
+
 export function databaseNameOf(url: string): string {
   const parsed = parse(url);
   if (!parsed) return "";

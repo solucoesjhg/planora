@@ -14,7 +14,7 @@ import { cookies, headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import type { TenantContext } from "@/server/auth/tenant";
 import { getAuth } from "@/server/auth/config";
-import { getDatabase } from "@/server/db/client";
+import { getSystemDatabase, withUser } from "@/server/db/client";
 import { WORKSPACE_COOKIE } from "@/server/modules/workspaces/cookie";
 import {
   ensurePersonalWorkspace,
@@ -56,15 +56,20 @@ export const requireSession = cache(async (): Promise<Session> => {
 export const requireWorkspace = cache(
   async (workspaceId?: string): Promise<TenantContext> => {
     const session = await requireSession();
-    const database = getDatabase();
 
     const chosen = workspaceId ?? (await chosenWorkspace());
-    const context =
-      (await resolveTenantContext(database, session.userId, chosen)) ??
-      // The cookie named somewhere they no longer belong.
-      (chosen && !workspaceId
-        ? await resolveTenantContext(database, session.userId)
-        : null);
+    // The bootstrap lane (ADR 0002): which workspace this is cannot be part of
+    // the question, because answering it is how we find out. One scope covers
+    // both attempts.
+    const context = await withUser(session.userId, async (tx) => {
+      return (
+        (await resolveTenantContext(tx, session.userId, chosen)) ??
+        // The cookie named somewhere they no longer belong.
+        (chosen && !workspaceId
+          ? await resolveTenantContext(tx, session.userId)
+          : null)
+      );
+    });
     if (context) return context;
 
     // Asking for a specific workspace and not being a member of it is a 404,
@@ -74,13 +79,18 @@ export const requireWorkspace = cache(
     // account.
     if (workspaceId) notFound();
 
-    await ensurePersonalWorkspace(database, {
+    // The system lane, and the one place it is unavoidable: this writes a
+    // workspace and a membership for somebody who belongs to nothing yet, so
+    // there is no membership for a policy to check it against (ADR 0002).
+    await ensurePersonalWorkspace(getSystemDatabase(), {
       id: session.userId,
       name: session.name,
       email: session.email,
     });
 
-    const repaired = await resolveTenantContext(database, session.userId);
+    const repaired = await withUser(session.userId, (tx) =>
+      resolveTenantContext(tx, session.userId),
+    );
     if (!repaired) notFound();
     return repaired;
   },

@@ -3,7 +3,7 @@ import { ToastProvider } from "@/components/ui/toast";
 import { NewProjectDialog } from "@/features/projects/new-project-dialog";
 import { ProjectGrid } from "@/features/projects/project-grid";
 import { requireWorkspace } from "@/server/auth/dal";
-import { getDatabase } from "@/server/db/client";
+import { withTenant } from "@/server/db/client";
 import { listProjects } from "@/server/modules/projects/repository";
 import { hideCompleted } from "@/server/modules/workspaces/preferences";
 import { AccountBar } from "@/features/workspace/account-bar";
@@ -11,7 +11,9 @@ import { AccountBar } from "@/features/workspace/account-bar";
 export default async function ProjectsPage() {
   const workspace = await requireWorkspace();
   const [projects, hidingCompleted] = await Promise.all([
-    listProjects(getDatabase(), workspace),
+    withTenant(workspace, (tx) => listProjects(tx, workspace)),
+    // A cookie, not a query: it stays outside the scope rather than holding a
+    // pooled backend open for the time it takes to read one.
     hideCompleted(),
   ]);
 

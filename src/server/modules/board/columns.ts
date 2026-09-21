@@ -5,6 +5,14 @@
  * reads that phase. So adding one means declaring which phase it belongs to,
  * and planning and done are immutable — `canEditColumn` is what says so, on the
  * server exactly as on the board.
+ *
+ * Two of the four open a scope of their own through `inScope` — a savepoint
+ * inside the one the Server Action already opened (ADR 0002) — because each has
+ * a check whose answer must still hold when the write lands: `createColumn`
+ * places the new column between two it just read, `deleteColumn` deletes one it
+ * just found empty. `renameColumn` and `moveColumn` do not: each is a single
+ * write whose preceding read only decides whether to make it, and a stale read
+ * costs a label or a position, not a row.
  */
 
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
@@ -12,7 +20,7 @@ import { canEditColumn, keyBetween } from "@/domain/kanban";
 import type { Phase } from "@/domain/types";
 import { ok, refused, type Result } from "@/lib/result";
 import { can, type TenantContext } from "@/server/auth/tenant";
-import type { Database } from "@/server/db/client";
+import { inScope, type Executor } from "@/server/db/client";
 import { boardColumns, tasks } from "@/server/db/schema";
 
 export type ColumnFailure =
@@ -23,7 +31,7 @@ export type ColumnFailure =
   | "not-empty";
 
 export async function createColumn(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: { projectId: string; name: string; phase: Phase },
 ): Promise<Result<{ columnId: string }, ColumnFailure>> {
@@ -34,7 +42,7 @@ export async function createColumn(
     return refused("phase-taken", input.phase);
   }
 
-  return db.transaction(async (tx) => {
+  return inScope(db, context, async (tx) => {
     const columns = await tx
       .select()
       .from(boardColumns)
@@ -74,7 +82,7 @@ export async function createColumn(
 }
 
 export async function renameColumn(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: { columnId: string; name: string },
 ): Promise<Result<{ columnId: string }, ColumnFailure>> {
@@ -105,50 +113,59 @@ export async function renameColumn(
 }
 
 export async function deleteColumn(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   columnId: string,
 ): Promise<Result<{ columnId: string }, ColumnFailure>> {
   if (!can(context, "manage-column")) return refused("forbidden", context.role);
 
-  const column = await findColumnRow(db, context, columnId);
-  if (!column) return refused("not-found", columnId);
+  /**
+   * The count and the delete are one decision, so they need one scope of their
+   * own rather than the caller's by accident: a card dragged into the column
+   * between them meets `tasks_column_fk`, which has no `on delete`, and the
+   * person is told the database raised instead of being told the column still
+   * has cards in it.
+   */
+  return inScope(db, context, async (tx) => {
+    const column = await findColumnRow(tx, context, columnId);
+    if (!column) return refused("not-found", columnId);
 
-  const decision = canEditColumn(
-    { id: column.id, phase: column.phase as Phase, position: column.position },
-    "delete",
-  );
-  if (decision.kind === "refused") return refused("immutable-column", column.phase);
-
-  const [{ count } = { count: 0 }] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(tasks)
-    .where(
-      and(
-        eq(tasks.workspaceId, context.workspaceId),
-        eq(tasks.columnId, columnId),
-        isNull(tasks.deletedAt),
-      ),
+    const decision = canEditColumn(
+      { id: column.id, phase: column.phase as Phase, position: column.position },
+      "delete",
     );
+    if (decision.kind === "refused") return refused("immutable-column", column.phase);
 
-  // Deleting a column with cards in it would either orphan them or move them
-  // silently. Neither is something to do behind someone's back.
-  if (count > 0) return refused("not-empty", String(count));
+    const [{ count } = { count: 0 }] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.workspaceId, context.workspaceId),
+          eq(tasks.columnId, columnId),
+          isNull(tasks.deletedAt),
+        ),
+      );
 
-  await db
-    .delete(boardColumns)
-    .where(
-      and(
-        eq(boardColumns.workspaceId, context.workspaceId),
-        eq(boardColumns.id, columnId),
-      ),
-    );
+    // Deleting a column with cards in it would either orphan them or move them
+    // silently. Neither is something to do behind someone's back.
+    if (count > 0) return refused("not-empty", String(count));
 
-  return ok({ columnId });
+    await tx
+      .delete(boardColumns)
+      .where(
+        and(
+          eq(boardColumns.workspaceId, context.workspaceId),
+          eq(boardColumns.id, columnId),
+        ),
+      );
+
+    return ok({ columnId });
+  });
 }
 
 export async function moveColumn(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: { columnId: string; afterId?: string | null; beforeId?: string | null },
 ): Promise<Result<{ position: string }, ColumnFailure>> {
@@ -200,7 +217,7 @@ export async function moveColumn(
 }
 
 async function findColumnRow(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   columnId: string,
 ) {

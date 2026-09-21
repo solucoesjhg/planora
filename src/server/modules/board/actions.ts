@@ -1,11 +1,21 @@
 "use server";
 
+/**
+ * The board's write path (DEVELOPMENT_PLAN.md §2.3).
+ *
+ * Each of these is the entry point for one mutation, which since Phase 10 makes
+ * it the place both barriers sit: `writing` spends the person's allowance and
+ * then opens the scope the policies read, handing the service the transaction
+ * as the `Executor` it already accepted (ADR 0002). Nothing below this file
+ * reaches for a connection of its own.
+ */
+
 import { revalidatePath } from "next/cache";
 import { dispatchSoon } from "@/server/events/dispatch-soon";
 import { z } from "zod";
 import { isRefused, type Result } from "@/lib/result";
 import { requireWorkspace } from "@/server/auth/dal";
-import { getDatabase } from "@/server/db/client";
+import { writing, type Limited } from "@/server/limits";
 import {
   createColumn,
   deleteColumn,
@@ -31,19 +41,21 @@ const moveSchema = z.object({
 
 export async function moveTaskAction(
   input: z.input<typeof moveSchema>,
-): Promise<BoardActionResult<MoveTaskFailure>> {
+): Promise<BoardActionResult<Limited<MoveTaskFailure>>> {
   const parsed = moveSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await moveTask(getDatabase(), context, {
-    taskId: parsed.taskId,
-    toColumnId: parsed.toColumnId,
-    afterTaskId: parsed.afterTaskId ?? null,
-    beforeTaskId: parsed.beforeTaskId ?? null,
-    // The archived note is titled in the language of the interface.
-    phaseLabel,
-    ...(parsed.ack ? { ack: parsed.ack } : {}),
-  });
+  const result = await writing(context, "write", (tx) =>
+    moveTask(tx, context, {
+      taskId: parsed.taskId,
+      toColumnId: parsed.toColumnId,
+      afterTaskId: parsed.afterTaskId ?? null,
+      beforeTaskId: parsed.beforeTaskId ?? null,
+      // The archived note is titled in the language of the interface.
+      phaseLabel,
+      ...(parsed.ack ? { ack: parsed.ack } : {}),
+    }),
+  );
 
   revalidatePath(`/projects/${parsed.projectId}`);
 
@@ -59,11 +71,13 @@ const createColumnSchema = z.object({
 
 export async function createColumnAction(
   input: z.input<typeof createColumnSchema>,
-): Promise<BoardActionResult<ColumnFailure>> {
+): Promise<BoardActionResult<Limited<ColumnFailure>>> {
   const parsed = createColumnSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await createColumn(getDatabase(), context, parsed);
+  const result = await writing(context, "write", (tx) =>
+    createColumn(tx, context, parsed),
+  );
   revalidatePath(`/projects/${parsed.projectId}`);
   dispatchSoon();
   return toResult(result);
@@ -77,14 +91,16 @@ const renameColumnSchema = z.object({
 
 export async function renameColumnAction(
   input: z.input<typeof renameColumnSchema>,
-): Promise<BoardActionResult<ColumnFailure>> {
+): Promise<BoardActionResult<Limited<ColumnFailure>>> {
   const parsed = renameColumnSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await renameColumn(getDatabase(), context, {
-    columnId: parsed.columnId,
-    name: parsed.name,
-  });
+  const result = await writing(context, "write", (tx) =>
+    renameColumn(tx, context, {
+      columnId: parsed.columnId,
+      name: parsed.name,
+    }),
+  );
 
   revalidatePath(`/projects/${parsed.projectId}`);
 
@@ -99,11 +115,13 @@ const columnSchema = z.object({
 
 export async function deleteColumnAction(
   input: z.input<typeof columnSchema>,
-): Promise<BoardActionResult<ColumnFailure>> {
+): Promise<BoardActionResult<Limited<ColumnFailure>>> {
   const parsed = columnSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await deleteColumn(getDatabase(), context, parsed.columnId);
+  const result = await writing(context, "write", (tx) =>
+    deleteColumn(tx, context, parsed.columnId),
+  );
   revalidatePath(`/projects/${parsed.projectId}`);
   dispatchSoon();
   return toResult(result);
@@ -116,15 +134,17 @@ const moveColumnSchema = columnSchema.extend({
 
 export async function moveColumnAction(
   input: z.input<typeof moveColumnSchema>,
-): Promise<BoardActionResult<ColumnFailure>> {
+): Promise<BoardActionResult<Limited<ColumnFailure>>> {
   const parsed = moveColumnSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await moveColumn(getDatabase(), context, {
-    columnId: parsed.columnId,
-    afterId: parsed.afterId ?? null,
-    beforeId: parsed.beforeId ?? null,
-  });
+  const result = await writing(context, "write", (tx) =>
+    moveColumn(tx, context, {
+      columnId: parsed.columnId,
+      afterId: parsed.afterId ?? null,
+      beforeId: parsed.beforeId ?? null,
+    }),
+  );
 
   revalidatePath(`/projects/${parsed.projectId}`);
 

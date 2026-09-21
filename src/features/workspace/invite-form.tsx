@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import type { Role } from "@/server/auth/tenant";
 import { inviteMemberAction } from "@/server/modules/workspaces/actions";
+import { RATE_LIMITED } from "@/lib/strings";
 
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "member", label: "Membro — cria e move tarefas" },
@@ -17,6 +18,7 @@ const ROLE_OPTIONS: { value: Role; label: string }[] = [
 ];
 
 const REFUSALS: Record<string, string> = {
+  "rate-limited": RATE_LIMITED,
   forbidden: "Seu papel neste espaço não permite convidar.",
   "already-member": "Essa pessoa já está no espaço de trabalho.",
   "already-invited": "Já existe um convite em aberto para esse e-mail.",

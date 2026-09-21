@@ -5,7 +5,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { ToastProvider } from "@/components/ui/toast";
 import { TaskDocument } from "@/features/tasks/task-document";
 import { requireWorkspace } from "@/server/auth/dal";
-import { getDatabase } from "@/server/db/client";
+import { withTenant } from "@/server/db/client";
 import { loadTaskView } from "@/server/modules/tasks/view";
 import { AccountBar } from "@/features/workspace/account-bar";
 
@@ -20,7 +20,7 @@ export default async function TaskPage({
   const { projectId, taskId } = await params;
   const workspace = await requireWorkspace();
 
-  const task = await loadTaskView(getDatabase(), workspace, taskId);
+  const task = await withTenant(workspace, (tx) => loadTaskView(tx, workspace, taskId));
   if (!task || task.project.id !== projectId) notFound();
 
   return (

@@ -20,6 +20,7 @@ import {
   CONDITION_FIELD_LABELS,
   PHASE_OPTIONS,
   PRIORITY_OPTIONS,
+  RATE_LIMITED,
   TRIGGER_OPTIONS,
   VERDICT_OPTIONS,
 } from "@/lib/strings";
@@ -50,7 +51,9 @@ export function RuleForm({ members }: { members: readonly Member[] }) {
           title:
             result.reason === "forbidden"
               ? "Seu papel neste espaço não permite criar regras."
-              : "A regra não está completa.",
+              : result.reason === "rate-limited"
+                ? RATE_LIMITED
+                : "A regra não está completa.",
           description: result.detail,
         });
         return;

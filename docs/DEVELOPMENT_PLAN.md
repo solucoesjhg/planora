@@ -80,7 +80,7 @@ Server Components read through the DAL; the client does not fetch for an initial
 
 Every repository takes a `TenantContext` — `{ workspaceId, userId, role }` — as its first argument, and only the DAL can produce one, from the session. No repository reads a session on its own, and no query runs without `workspace_id` in its `where`. Combined with the composite foreign keys of §4.1, a cross-tenant read requires two independent failures.
 
-RLS arrives in Phase 10 as a second barrier, with policies reading the workspace from a transaction-local setting (`set_config(..., true)`) applied by the connection wrapper at the start of every transaction. For that barrier to be real, the application must connect as a role that **cannot** bypass it: a non-owner role without `BYPASSRLS`, against tables carrying `FORCE ROW LEVEL SECURITY`, while migrations run separately as the owner. Otherwise Phase 10's exit test — the database refusing a cross-workspace read on its own — passes only because the application refused first, which proves nothing.
+RLS arrived in Phase 10 as a second barrier, and building it corrected this paragraph twice (ADR 0002). Because the application connects through a transaction-mode pooler, an explicit transaction is the only unit of session state there is: a statement sent outside `BEGIN` is its own implicit transaction and may land on any backend, so a setting applied to one statement is not there for the next. Every access therefore opens a scope — reads included, which until then ran as plain queries — and the scope is opened at the entry point, the Server Action or the Server Component, because twenty-seven of the forty-one service functions never opened a transaction of their own. And the policies do not trust the setting: they resolve it through a `SECURITY DEFINER` function that returns the workspace only when `workspace_members` says the user is in it, so a wrong `TenantContext` — the failure this barrier exists to catch — is refused by the database rather than obeyed by it. For the barrier to be real, the application connects as a role that **cannot** bypass it: `planora_app`, a non-owner without `BYPASSRLS` and with no grant at all on the identity tables, against tables carrying `FORCE ROW LEVEL SECURITY`, while migrations keep running as the owner. Four paths are deliberately outside it, on a second `BYPASSRLS` role, because they read across every workspace by construction: Better Auth's own tables, the outbox dispatcher and the clock, email delivery and digests, and the signup path that writes a person's first workspace before there is a membership to check it against.
 
 Even so, RLS is a backstop and not the source of truth. The authority is the `TenantContext`; the database is the thing that catches the day the context is wrong.
 
@@ -110,6 +110,7 @@ src/
     events/               outbox writer, dispatcher, dispatch-soon
     db/                   schema · migrations · seed
     storage/              the storage port and its three adapters: Supabase, filesystem, memory
+    limits/               the allowance on write actions: the system lane's counter, and `writing()`
     content/              the HTML allowlist everything an editor writes passes through
   fixtures/               sample data, imported by the domain tests
   lib/                    calendar, ids, strings (the pt-BR dictionary), the Result type
@@ -688,11 +689,11 @@ The order is negotiable in most places and non-negotiable in one: **the domain c
 
 #### Phase 10 · Hardening
 
-- RLS as the second barrier: policies reading the workspace from the transaction-local setting, `FORCE ROW LEVEL SECURITY` on every business table, and the application connecting as a non-owner role without `BYPASSRLS` while migrations keep running as the owner
+- RLS as the second barrier: a scope opened at every entry point, reads included; policies resolving the transaction-local setting through a membership check rather than trusting it; `FORCE ROW LEVEL SECURITY` on every business table; the application connecting as a non-owner role without `BYPASSRLS` and without a grant on the identity tables; a separate system role for the four cross-workspace paths; and migrations still running as the owner
 - Rate limiting on write actions — 60 per minute per user, 10 per minute for invitations and password resets — complete `activity_logs` coverage, CSP and security headers
 - A restore drill: a backup actually restored into a scratch database
 
-> **Done when** a test connecting as the application role, with the tenant check in the service stubbed out, still cannot read another workspace's rows.
+> **Done when** a test connecting as the application role, with the tenant check in the service stubbed out, still cannot read another workspace's rows — and its companions show that naming a workspace you are not a member of buys nothing, that a statement sent outside a lane is refused rather than silently empty, and that every table in `public` outside the four identity tables carries `FORCE ROW LEVEL SECURITY` and a policy. The gate is the `database` job in CI; `pnpm verify` never reaches Postgres.
 
 #### Phase 11 · Launch readiness
 
@@ -785,6 +786,7 @@ It will be, somewhere. The response is not to work around it silently: change th
 | **No realtime** | Phase 6 onward | Accepted: two tabs can hold stale views. Revisit only when a second person actually uses a workspace |
 | **Glossary drift** | Phase 4 onward | Interface pt-BR, code English: one strings module, and Appendix B as the dictionary |
 | **shadcn/ui on Base UI** | Phase 4 | The Base UI distribution is newer than the Radix one and may not cover every primitive Phase 4 needs. Fallback: take that component from Base UI directly, or keep the Radix variant for it — the tokens are ours either way |
+| **A new table arrives without a policy** | Phase 10 onward | The barrier is only as complete as its last migration. A catalog test asserts that every table in `public` outside the four identity tables has `relrowsecurity`, `relforcerowsecurity` and at least one policy. It runs in the `database` job of CI — `pnpm verify` never reaches Postgres |
 | **Stale thresholds tuned on one user** | Phase 13 | Every default here was chosen from reasoning, not measurement. The snapshots are what turn them into evidence, and until then a wrong threshold shows up as a badge you disagree with |
 
 ### 9.1 Decisions deliberately deferred

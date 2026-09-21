@@ -9,7 +9,7 @@ import { ProfileForm } from "@/features/settings/profile-form";
 import { AccountBar } from "@/features/workspace/account-bar";
 import { requireSession, requireWorkspace } from "@/server/auth/dal";
 import { can } from "@/server/auth/tenant";
-import { getDatabase } from "@/server/db/client";
+import { withTenant } from "@/server/db/client";
 import { listProjects } from "@/server/modules/projects/repository";
 import { hideCompleted } from "@/server/modules/workspaces/preferences";
 import { membershipsOf } from "@/server/modules/workspaces/repository";
@@ -21,11 +21,15 @@ import { membershipsOf } from "@/server/modules/workspaces/repository";
 export default async function SettingsPage() {
   const session = await requireSession();
   const workspace = await requireWorkspace();
-  const database = getDatabase();
 
-  const [projects, memberships, hidingCompleted] = await Promise.all([
-    listProjects(database, workspace),
-    membershipsOf(database, session.userId),
+  // Both reads share the page's one scope; the preference is a cookie and
+  // stays outside it. The membership list is still every workspace this person
+  // belongs to inside a tenant scope — the policy answers to the user as well
+  // as to the workspace, which is what the switcher was always asking.
+  const [[projects, memberships], hidingCompleted] = await Promise.all([
+    withTenant(workspace, (tx) =>
+      Promise.all([listProjects(tx, workspace), membershipsOf(tx, session.userId)]),
+    ),
     hideCompleted(),
   ]);
   const workspaceName =

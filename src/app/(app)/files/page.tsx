@@ -4,7 +4,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AccountBar } from "@/features/workspace/account-bar";
 import { requireWorkspace } from "@/server/auth/dal";
-import { getDatabase } from "@/server/db/client";
+import { withTenant } from "@/server/db/client";
 import { groupByProject, listFiles, type FileEntry } from "@/server/modules/files/repository";
 
 /**
@@ -14,7 +14,7 @@ import { groupByProject, listFiles, type FileEntry } from "@/server/modules/file
  */
 export default async function FilesPage() {
   const workspace = await requireWorkspace();
-  const files = await listFiles(getDatabase(), workspace);
+  const files = await withTenant(workspace, (tx) => listFiles(tx, workspace));
   const groups = groupByProject(files);
   const bytes = files.reduce((sum, file) => sum + file.size, 0);
 

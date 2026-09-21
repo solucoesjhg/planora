@@ -5,7 +5,7 @@ import { PortfolioPanel } from "@/features/dashboard/portfolio-panel";
 import { ProjectRows } from "@/features/dashboard/project-rows";
 import { AccountBar } from "@/features/workspace/account-bar";
 import { requireWorkspace } from "@/server/auth/dal";
-import { getDatabase } from "@/server/db/client";
+import { withTenant } from "@/server/db/client";
 import { dispatchSoon } from "@/server/events/dispatch-soon";
 import { loadDashboard } from "@/server/modules/dashboard/view";
 
@@ -19,8 +19,10 @@ export default async function DashboardPage() {
   const now = new Date();
 
   // Reading the dashboard evaluates every active project, which writes each
-  // one's row for today (§3.5); a verdict that moved is announced.
-  const dashboard = await loadDashboard(getDatabase(), workspace, now);
+  // one's row for today (§3.5); a verdict that moved is announced. One scope
+  // around the whole load: it loops serially over the projects, and a scope
+  // per project would cost two round trips each (ADR 0002).
+  const dashboard = await withTenant(workspace, (tx) => loadDashboard(tx, workspace, now));
   if (dashboard.changed) dispatchSoon();
 
   const openTasks = dashboard.projects.reduce((sum, project) => sum + project.openTasks, 0);

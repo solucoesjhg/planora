@@ -27,7 +27,7 @@ import {
   liveTasks,
 } from "@/domain/types";
 import type { TenantContext } from "@/server/auth/tenant";
-import type { Database } from "@/server/db/client";
+import type { Executor } from "@/server/db/client";
 import { emit } from "@/server/events/outbox";
 import { historyOf, previousSnapshot, touchedTaskIds, writeSnapshot } from "./repository";
 
@@ -51,7 +51,7 @@ export type ProjectHealthView = {
 };
 
 export async function evaluateProjectHealth(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   project: ProjectForHealth,
   board: BoardContext,
