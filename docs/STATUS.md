@@ -150,25 +150,93 @@ seconds by default, and a tick with digests to send can take longer than that.
 Signing out, which had worked since Phase 3 without a test, has one now in
 `auth.spec.ts`.
 
+**Phase 10 — hardening.** Row-level security as a second barrier, and
+building it corrected §2.4 twice (ADR 0002). A transaction is the only unit of
+session state a transaction-mode pooler has, so every access opens a scope —
+reads included, which were plain queries at eighteen call sites — and the scope
+is opened at the entry point, because twenty-seven of the forty-one service
+functions never opened a transaction of their own and would have run unscoped.
+The policies do not trust the setting they read: `app.current_workspace()`
+resolves it through `workspace_members`, so a context naming a workspace the
+person is not in buys nothing, which is the failure the barrier is for.
+`planora_app` holds no `BYPASSRLS` and no grant on the identity tables;
+`planora_system` serves the four paths that cross workspaces by construction —
+Better Auth, the outbox and the clock, email and digests, and the first
+workspace an account gets — and an ESLint rule keeps that list from growing.
+A statement outside any lane raises rather than returning an empty result,
+because an empty board nobody reports for a week is the worse failure. Fifteen
+integration tests connect as the application role with no tenant check at all,
+and a catalog test turns red on a table added without a policy.
+
+**The allowance.** Sixty writes a minute per person, ten for invitations, in
+the table Better Auth already owns, under keys that cannot collide with its
+own. It runs on the system lane so the count survives the refused transaction,
+and `select … for update` makes it a count rather than an estimate. The
+decision is pure; the awkward cases — the request that exactly reaches the
+limit, the one a millisecond before the window turns, a counter from a clock
+that disagrees — are unit tests.
+
+**The headers, the feed and the drill.** The security headers moved from
+`vercel.json`, where only the edge could see them, into `next.config.ts`, where
+`pnpm start` serves them and the E2E suite can finally assert them — with a
+Content-Security-Policy beside them, no nonce and the reason written down.
+All seventeen catalogued event types now reach the activity feed as pt-BR
+prose through a total map; the clock's three were printing their own
+identifiers on the dashboard. And `pnpm db:restore-drill` rebuilds a database
+from a dump and compares row counts, migrations and policy counts before it
+calls a backup real — it caught a stale hard-coded schema list on its first
+run, which is the argument for it existing.
+
 ## Next
 
-- Phase 10 · Hardening — the first phase of Block C (§7).
+- **Turn the barrier on in production** (`docs/DEPLOY.md`, 7): give
+  `planora_app` and `planora_system` a password in Supabase, set
+  `APP_DATABASE_URL` and `SYSTEM_DATABASE_URL` in Vercel, redeploy, and check
+  that `pg_stat_activity` shows the restricted role. Until then the policies
+  ship and do not bite, which is how the phase was landed — one variable turns
+  it on, and the same one rolls it back.
+- Check that `SUPABASE_URL` is in Vercel's **build** environment, not only at
+  runtime: the Content-Security-Policy names the bucket's origin at build time,
+  and without it every attachment image is refused in production and nowhere
+  else.
+- Phase 11 · Launch readiness — a preview per pull request, error tracking, the
+  performance budget, the accessibility pass, and E2E in CI (§7).
 - Watch the phone board in use. Directions B (a snapping carousel) and C (a
   list by phase) are kept in the design canvas of 2026-09-17 in case tabs do
   not prove out.
 
 ## Open decisions
 
-- **Should the verification link also sign the person in?** Today it does
-  (`autoSignInAfterVerification: true` in `src/server/auth/config.ts`). The link
-  is a JWT signed with `BETTER_AUTH_SECRET`, valid for 15 minutes and **not
-  single-use** — Better Auth verifies the signature and expiry without storing
-  it. So for that window the message in the inbox is a live credential: whoever
-  opens the mailbox is in the account. Turning the flag off costs one extra step
-  at signup (verify, then log in) and removes the property entirely. Revisit
-  before the product holds anybody else's data — Phase 10 at the latest.
+- **Should the verification link also sign the person in?** Still open, and
+  Phase 10 sharpened the facts rather than settling it, because it is a product
+  call. Today it does (`autoSignInAfterVerification: true` in
+  `src/server/auth/config.ts`). The link is a JWT signed with
+  `BETTER_AUTH_SECRET`, valid for 15 minutes and not stored — but the sign-in
+  fires only on the unverified→verified transition, so a replayed link is an
+  inert redirect and the exposure is the *first* click on a never-verified
+  account, not any click in the window. Two things widen it again:
+  `/send-verification-email` takes an address with no session and mails a fresh
+  15-minute link, so anyone who knows an unverified address can reopen the
+  window; and the link is a GET that mutates state and sets a cookie, which is
+  what a mail scanner follows — the same failure this project already fixed for
+  invitations by making acceptance a click. When a scanner clicks first, the
+  cookie lands in the scanner and the person reaches a login form with no
+  explanation, so the property is not even reliable. Turning it off is one line
+  plus a pt-BR notice on `/login`, and costs one extra step at signup; the E2E
+  helper `registerAndVerify` gains a sign-in and one assertion changes. Better
+  Auth 1.7.3 has no single-use or device-bound verification link, so there is no
+  third option short of the email-OTP plugin. **Decide before the product holds
+  anybody else's data.**
 
 ## Blocked / open
+
+- **One E2E test fails on this machine, and failed before the phase.**
+  `board.spec.ts` → "a swipe on a card scrolls, and a long press carries it"
+  times out waiting for the card to change column. Checked out `main` at
+  `82cec93` and ran the same test: it fails there too, so it is the touch
+  gesture or the Playwright version, not Phase 10. Every other E2E test passes
+  (61 of 62). Worth its own look before Phase 11 puts the suite in CI.
+
 
 - **The Supabase CLI stack was not adopted.** Phase 7 took the fallback §9.1
   named instead: Docker Postgres plus a filesystem storage adapter behind
