@@ -56,11 +56,17 @@ person's first workspace and membership before any membership exists to check
 them against. An ESLint rule keeps `getSystemDatabase` inside the four
 directories that may hold it, beside the rule that already guards `domain/`.
 
-**Two roles, and the owner keeps migrating.** `planora_app` is a non-owner
+**One new role, and the owner keeps migrating.** `planora_app` is a non-owner
 without `BYPASSRLS`, with no grant at all on `users`, `sessions`, `accounts`,
-`verifications` or `rate_limits`. `planora_system` has `BYPASSRLS` and serves
-the fourth lane. Migrations keep running as the owner, so the policies are
-written by a role the application cannot become.
+`verifications` or `rate_limits`. The fourth lane runs as the owner itself,
+which holds `BYPASSRLS` on Supabase and is a superuser locally. The first
+draft had a second role, `planora_system`, with `BYPASSRLS` and nothing else;
+the first production deploy failed on its `CREATE ROLE`, because on Postgres
+15 that attribute can only be granted by a superuser and Supabase's `postgres`
+is not one. A migration that works on one Postgres major and not another is
+the wrong place to put a role, so the lane uses the connection that already
+exists. Migrations keep running as the owner, so the policies are written by a
+role the application cannot become.
 
 **The policies resolve the setting, they do not trust it.**
 `app.current_workspace()` is `STABLE SECURITY DEFINER`, with `search_path`
@@ -75,11 +81,14 @@ workspace stays the service's question (§4.4). This is a tenant barrier, not a
 permission system, and pretending otherwise would put the same rule in two
 places.
 
-**A forgotten scope is loud.** `planora_app`'s own default sets
-`planora.workspace_id` to a sentinel that is not a uuid, so a statement that
+**A forgotten scope is loud.** With the setting absent,
+`app.current_workspace()` casts the word `unset` to a uuid, so a statement that
 reaches the database outside any lane raises rather than returning an empty
 result. An empty board nobody reports for a week is the failure mode worth
-spending a raise on.
+spending a raise on. The first draft put that sentinel in the role's own
+defaults with `ALTER ROLE … SET`, which for a custom parameter needs a
+superuser; the owner that migrates a Supabase project is not one, and the
+deploy failed there. The function needs no permission.
 
 ## Consequences
 

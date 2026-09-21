@@ -45,10 +45,10 @@ export type Connection = {
 /**
  * The workspace a lane that has no workspace still has to name.
  *
- * `planora_app` starts every session with `planora.workspace_id` set to a
- * string that is not a uuid, so a statement outside any lane raises rather than
- * returning nothing (migration 0008). The bootstrap and invitation lanes do
- * have to run, though, so they set a uuid that is valid and matches no row.
+ * With the setting absent, `app.current_workspace()` casts the word `unset` to
+ * a uuid and the statement raises, so a query outside any lane is loud rather
+ * than empty (migration 0008). The bootstrap and invitation lanes do have to
+ * run, though, so they set a uuid that is valid and matches no row.
  */
 const NO_WORKSPACE = "00000000-0000-0000-0000-000000000000";
 
@@ -81,10 +81,15 @@ export function getDatabase(): Database {
 }
 
 /**
- * The pool for the four cross-workspace paths (ADR 0002). It connects as
- * `planora_system`, which holds `BYPASSRLS` — so every caller of this function
- * is a caller that has been argued for, and the ESLint rule is what keeps the
- * list from growing by accident.
+ * The pool for the four cross-workspace paths (ADR 0002).
+ *
+ * It connects as the owner — `SYSTEM_DATABASE_URL` when set, otherwise the
+ * same `DATABASE_URL` the migrations use — which holds `BYPASSRLS` on Supabase
+ * and is a superuser locally. There is no second application role: creating
+ * one with `BYPASSRLS` needs a superuser on Postgres 15, which Supabase's
+ * `postgres` is not, and the first deploy of the phase failed on that line.
+ * So every caller of this function is a caller that has been argued for, and
+ * the ESLint rule is what keeps the list from growing by accident.
  */
 export function getSystemDatabase(): Database {
   if (systemConnection) return systemConnection.db;

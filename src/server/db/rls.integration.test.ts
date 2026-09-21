@@ -132,10 +132,10 @@ suite("row-level security, as the application role", () => {
   });
 
   /**
-   * Loud, not empty. `planora_app` starts every session with a
-   * `planora.workspace_id` that is not a uuid, so a statement that arrives
-   * outside a lane raises instead of returning nothing — an empty board nobody
-   * reports for a week is the worse failure, and the one this catches.
+   * Loud, not empty. With no setting applied, `app.current_workspace()` casts
+   * the word `unset` to a uuid, so a statement that arrives outside a lane
+   * raises instead of returning nothing — an empty board nobody reports for a
+   * week is the worse failure, and the one this catches.
    */
   it("refuses a statement sent outside any lane", async () => {
     const refusal = await refusalOf(() =>
