@@ -93,11 +93,20 @@ export const SIGNAL_LABELS: Record<TaskSignal | ProjectSignal, string> = {
   momentum: "pouco movimento nos últimos sete dias",
 };
 
+/**
+ * "1 dia", "5 dias" — a count of days that agrees with itself in pt-BR.
+ * Every sentence that counts days reaches for this one rather than repeating
+ * the plural, because the plural is a language rule and belongs here.
+ */
+export function dayCount(days: number): string {
+  return `${days} ${days === 1 ? "dia" : "dias"}`;
+}
+
 /** "piorando há 5 dias" — the trend line under the badge. */
 export function trendLabel(trend: Trend): string {
   if (trend.direction === "steady" || trend.days === 0) return "estável";
   const verb = trend.direction === "worsening" ? "piorando" : "melhorando";
-  return `${verb} há ${trend.days} ${trend.days === 1 ? "dia" : "dias"}`;
+  return `${verb} há ${dayCount(trend.days)}`;
 }
 
 /* ------------------------------------------------------------------ *
@@ -162,3 +171,11 @@ export const PHASE_OPTIONS = (["planning", "execution", "review", "done"] as con
 export const VERDICT_OPTIONS = (
   ["healthy", "attention", "at_risk", "critical", "insufficient_data"] as const
 ).map((value) => ({ value, label: VERDICT_LABELS[value] }));
+
+/**
+ * What a refused request says, when the refusal came from the allowance rather
+ * than from the rule (§7 Phase 10). Every write action can answer with it, so
+ * it lives here rather than in each screen's own map.
+ */
+export const RATE_LIMITED =
+  "Você fez isso muitas vezes seguidas. Espere um minuto e tente de novo.";

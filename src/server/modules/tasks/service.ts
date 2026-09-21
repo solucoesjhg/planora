@@ -6,6 +6,13 @@
  * `canAddDependency` for the graph, `archiveNotes` for the phase trail. What
  * this file owns is authorization, the transaction, and the events a change
  * leaves behind.
+ *
+ * The transaction is no longer the service's own: `inScope` reuses the scope the
+ * Server Action opened, so each of these becomes a savepoint inside it and the
+ * settings the policies read stay applied throughout (ADR 0002). The four that
+ * never opened one — a checklist item removed, a dependency removed, a comment
+ * edited or removed — write on the executor they are handed, which from the
+ * entry point down is that same transaction.
  */
 
 import { and, eq, inArray } from "drizzle-orm";
@@ -15,7 +22,7 @@ import type { BoardContext, CalendarDate, Priority } from "@/domain/types";
 import { ok, refused, type Result } from "@/lib/result";
 import { can, provenance, type TenantContext } from "@/server/auth/tenant";
 import { isBlankRichText, sanitizeRichText } from "@/server/content/html";
-import type { Database } from "@/server/db/client";
+import { inScope, type Executor } from "@/server/db/client";
 import {
   taskChecklistItems,
   taskComments,
@@ -59,7 +66,7 @@ export type CreateTaskInput = {
 };
 
 export async function createTask(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: CreateTaskInput,
 ): Promise<Result<{ taskId: string; number: number }, TaskFailure>> {
@@ -69,7 +76,7 @@ export async function createTask(
   if (title.length === 0) return refused("empty", "title");
   if (title.length > TITLE_LIMIT) return refused("too-long", "title");
 
-  return db.transaction(async (tx) => {
+  return inScope(db, context, async (tx) => {
     const board = await loadBoardContext(tx, context, input.projectId);
     const target = board.columns.find((each) => each.id === input.columnId);
     if (!target) return refused("not-found", input.columnId);
@@ -127,7 +134,7 @@ export type UpdateTaskInput = {
 };
 
 export async function updateTask(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: UpdateTaskInput,
 ): Promise<Result<{ taskId: string }, TaskFailure>> {
@@ -141,7 +148,7 @@ export async function updateTask(
     if (title.length > TITLE_LIMIT) return refused("too-long", "title");
   }
 
-  return db.transaction(async (tx) => {
+  return inScope(db, context, async (tx) => {
     const task = await findTask(tx, context, input.taskId);
     if (!task) return refused("not-found", input.taskId);
 
@@ -203,7 +210,7 @@ export type AssignTaskInput = {
  * who without a lookup that would answer differently after somebody renamed.
  */
 export async function assignTask(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: AssignTaskInput,
 ): Promise<Result<{ taskId: string }, AssignFailure>> {
@@ -212,7 +219,7 @@ export async function assignTask(
   const now = input.now ?? new Date();
   const userIds = [...new Set(input.userIds)];
 
-  return db.transaction(async (tx) => {
+  return inScope(db, context, async (tx) => {
     const task = await findTask(tx, context, input.taskId);
     if (!task) return refused("not-found", input.taskId);
 
@@ -256,7 +263,7 @@ export async function assignTask(
  * ------------------------------------------------------------------ */
 
 export async function addChecklistItem(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: { taskId: string; title: string },
 ): Promise<Result<{ itemId: string }, TaskFailure>> {
@@ -266,7 +273,7 @@ export async function addChecklistItem(
   if (title.length === 0) return refused("empty", "title");
   if (title.length > TITLE_LIMIT) return refused("too-long", "title");
 
-  return db.transaction(async (tx) => {
+  return inScope(db, context, async (tx) => {
     const task = await findTask(tx, context, input.taskId);
     if (!task) return refused("not-found", input.taskId);
 
@@ -286,7 +293,7 @@ export async function addChecklistItem(
 }
 
 export async function setChecklistItem(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: { itemId: string; done?: boolean; title?: string },
 ): Promise<Result<{ itemId: string; checklistCompleted: boolean }, TaskFailure>> {
@@ -296,7 +303,7 @@ export async function setChecklistItem(
     return refused("empty", "title");
   }
 
-  return db.transaction(async (tx) => {
+  return inScope(db, context, async (tx) => {
     const item = await findChecklistItem(tx, context, input.itemId);
     if (!item) return refused("not-found", input.itemId);
 
@@ -340,7 +347,7 @@ export async function setChecklistItem(
 }
 
 export async function removeChecklistItem(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   itemId: string,
 ): Promise<Result<{ itemId: string }, TaskFailure>> {
@@ -366,13 +373,13 @@ export async function removeChecklistItem(
  * ------------------------------------------------------------------ */
 
 export async function addDependency(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: { taskId: string; dependsOnId: string },
 ): Promise<Result<{ dependencyId: string }, DependencyFailure>> {
   if (!can(context, "write-task")) return refused("forbidden", context.role);
 
-  return db.transaction(async (tx) => {
+  return inScope(db, context, async (tx) => {
     const task = await findTask(tx, context, input.taskId);
     const dependency = await findTask(tx, context, input.dependsOnId);
     if (!task || !dependency) return refused("not-found", input.dependsOnId);
@@ -398,7 +405,7 @@ export async function addDependency(
 }
 
 export async function removeDependency(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   dependencyId: string,
 ): Promise<Result<{ dependencyId: string }, TaskFailure>> {
@@ -424,7 +431,7 @@ export async function removeDependency(
  * ------------------------------------------------------------------ */
 
 export async function addComment(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: { taskId: string; body: string },
 ): Promise<Result<{ commentId: string }, TaskFailure>> {
@@ -433,7 +440,7 @@ export async function addComment(
   const body = sanitizeRichText(input.body);
   if (isBlankRichText(body)) return refused("empty", "body");
 
-  return db.transaction(async (tx) => {
+  return inScope(db, context, async (tx) => {
     const task = await findTask(tx, context, input.taskId);
     if (!task) return refused("not-found", input.taskId);
 
@@ -467,7 +474,7 @@ export async function addComment(
 }
 
 export async function editComment(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: { commentId: string; body: string },
 ): Promise<Result<{ commentId: string }, TaskFailure>> {
@@ -493,7 +500,7 @@ export async function editComment(
 }
 
 export async function removeComment(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   commentId: string,
 ): Promise<Result<{ commentId: string }, TaskFailure>> {

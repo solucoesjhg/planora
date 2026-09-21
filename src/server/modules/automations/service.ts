@@ -28,7 +28,7 @@ import { channelsFor } from "@/lib/notifications";
 import { isRefused, ok, refused, type Result } from "@/lib/result";
 import { PHASE_LABELS } from "@/lib/strings";
 import { can, type TenantContext } from "@/server/auth/tenant";
-import type { Database, Executor } from "@/server/db/client";
+import type { Executor } from "@/server/db/client";
 import { boardColumns, outboxEvents, taskAssignees, tasks, workspaceMembers } from "@/server/db/schema";
 import { moveTask } from "@/server/modules/board/service";
 import { insertNotifications, preferencesOf } from "@/server/modules/notifications/repository";
@@ -63,7 +63,7 @@ const NAME_LIMIT = 120;
  * ------------------------------------------------------------------ */
 
 export async function createAutomation(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: AutomationInput,
 ): Promise<Result<{ automationId: string }, AutomationFailure>> {
@@ -79,7 +79,7 @@ export async function createAutomation(
 }
 
 export async function updateAutomation(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   automationId: string,
   values: Partial<AutomationInput>,
@@ -100,7 +100,7 @@ export async function updateAutomation(
 }
 
 export async function deleteAutomation(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   automationId: string,
 ): Promise<Result<{ automationId: string }, AutomationFailure>> {
@@ -118,8 +118,16 @@ export async function deleteAutomation(
 
 export type RunSummary = { readonly fired: number; readonly skipped: number };
 
+/**
+ * Every rule waiting on one event.
+ *
+ * The executor is the dispatcher's, which drains the outbox across every
+ * workspace by design and therefore runs on the system lane (ADR 0002). The
+ * services each action goes through take it as the `Executor` they already
+ * accepted, so nothing below here opens a pool of its own.
+ */
 export async function runAutomationsFor(
-  db: Database,
+  db: Executor,
   event: EventRow,
   now: Date = new Date(),
 ): Promise<RunSummary> {
@@ -241,7 +249,7 @@ async function subjectFor(
 }
 
 async function perform(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   rule: AutomationView,
   runId: string,

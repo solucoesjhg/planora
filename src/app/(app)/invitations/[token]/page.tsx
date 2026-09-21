@@ -2,8 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ROLE_LABELS } from "@/lib/strings";
+import { hashToken } from "@/lib/token";
 import { currentSession } from "@/server/auth/dal";
-import { getDatabase } from "@/server/db/client";
+import { withInvitation } from "@/server/db/client";
 import { acceptInvitationAction } from "@/server/modules/workspaces/actions";
 import { previewInvitation } from "@/server/modules/workspaces/service";
 
@@ -36,7 +37,12 @@ export default async function InvitationPage({
     redirect(`/login?next=${encodeURIComponent(`/invitations/${token}`)}`);
   }
 
-  const preview = await previewInvitation(getDatabase(), token);
+  // The token is the only thing this page has, so it is also what opens the
+  // scope: the policy compares the same SHA-256 the row was stored under, and
+  // the lane sees that one invitation and nothing else (ADR 0002).
+  const preview = await withInvitation(await hashToken(token), session.userId, (tx) =>
+    previewInvitation(tx, token),
+  );
   const problem =
     typeof refused === "string"
       ? (MESSAGES[refused] ?? "Convite inválido.")

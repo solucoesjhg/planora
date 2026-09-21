@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { currentSession } from "@/server/auth/dal";
 import { can } from "@/server/auth/tenant";
-import { getDatabase } from "@/server/db/client";
+import { withTenant, withUser } from "@/server/db/client";
 import { loadWorkspaceExport, toCsv, toJson } from "@/server/modules/workspaces/export";
 import { resolveTenantContext } from "@/server/modules/workspaces/repository";
 import { cookies } from "next/headers";
@@ -21,16 +21,19 @@ export async function GET(request: Request): Promise<Response> {
   const session = await currentSession();
   if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const database = getDatabase();
   const chosen = (await cookies()).get(WORKSPACE_COOKIE)?.value;
-  const tenant = await resolveTenantContext(database, session.userId, chosen);
+  // Which workspace this is cannot be part of the question (ADR 0002), so the
+  // lookup runs on the bootstrap lane and the export itself on the tenant one.
+  const tenant = await withUser(session.userId, (tx) =>
+    resolveTenantContext(tx, session.userId, chosen),
+  );
   if (!tenant) return NextResponse.json({ error: "not-found" }, { status: 404 });
   if (!can(tenant, "manage-project")) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   const format = new URL(request.url).searchParams.get("format") === "csv" ? "csv" : "json";
-  const data = await loadWorkspaceExport(database, tenant);
+  const data = await withTenant(tenant, (tx) => loadWorkspaceExport(tx, tenant));
   if (!data) return NextResponse.json({ error: "not-found" }, { status: 404 });
 
   const stamp = data.exportedAt.slice(0, 10);

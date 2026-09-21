@@ -11,13 +11,28 @@
  *
  * A reader's URL is signed the same way, and only after the workspace check:
  * `linkFor` is the one door, and it expires on its own.
+ *
+ * All four of these cross the network between two statements, which is the one
+ * thing a scope may not span (ADR 0002): a pooled backend held open while we
+ * wait on the store is idle in transaction, and `planora_app` is given ten
+ * seconds of that before Postgres takes the connection away. So each reads in
+ * one scope, asks the store outside every scope, and writes in another — which
+ * is why these four, alone among the module's functions, are not handed the
+ * Server Action's transaction. They are handed `null` and open a scope per
+ * statement through the lane itself. A caller that does lend them one gets the
+ * old shape back, with the store's round trip inside it.
  */
 
 import { and, eq } from "drizzle-orm";
 import { isRefused, ok, refused, type Result } from "@/lib/result";
 import { newId } from "@/lib/id";
 import { can, type TenantContext } from "@/server/auth/tenant";
-import type { Database } from "@/server/db/client";
+import {
+  inScope,
+  withTenant,
+  type Executor,
+  type Transaction,
+} from "@/server/db/client";
 import { attachments } from "@/server/db/schema";
 import type { Storage, UploadTicket } from "@/server/storage";
 import { findTask } from "./repository";
@@ -61,6 +76,26 @@ export function attachmentUrl(attachmentId: string): string {
   return `/api/attachments/${attachmentId}`;
 }
 
+/**
+ * A connection these four may borrow: the scope a caller is already in, or
+ * `null` from the one place that has none to lend.
+ *
+ * The Server Action passes `null` — it opened no scope precisely so that the
+ * store can be reached between statements — and each step then opens the
+ * lane's own. What does pass something is the route that serves a file, which
+ * is inside its own scope already, and the suite, which has a connection of
+ * its own and would otherwise watch its writes land in another database.
+ */
+export type Borrowed = Executor | null;
+
+function step<T>(
+  db: Borrowed,
+  context: TenantContext,
+  run: (tx: Transaction) => Promise<T>,
+): Promise<T> {
+  return db ? inScope(db, context, run) : withTenant(context, run);
+}
+
 export type RequestUploadInput = {
   readonly projectId: string;
   readonly taskId: string | null;
@@ -70,7 +105,7 @@ export type RequestUploadInput = {
 };
 
 export async function requestUpload(
-  db: Database,
+  db: Borrowed,
   context: TenantContext,
   storage: Storage,
   input: RequestUploadInput,
@@ -87,10 +122,11 @@ export async function requestUpload(
     return refused("too-large", String(input.size));
   }
 
-  if (input.taskId) {
-    const task = await findTask(db, context, input.taskId);
+  const taskId = input.taskId;
+  if (taskId) {
+    const task = await step(db, context, (tx) => findTask(tx, context, taskId));
     if (!task || task.projectId !== input.projectId) {
-      return refused("not-found", input.taskId);
+      return refused("not-found", taskId);
     }
   }
 
@@ -98,30 +134,35 @@ export async function requestUpload(
   const path = objectPath(context.workspaceId, input.projectId, attachmentId, input.name);
 
   // The ticket before the row: a row for an upload that can never be made
-  // would sit at `pending` for good.
+  // would sit at `pending` for good. That order is unchanged; what the scopes
+  // add is that the check above has already committed when the store is asked,
+  // so a ticket that never turns into a row leaves nothing behind but an
+  // address nobody was given.
   const ticket = await askStore("issue an upload ticket", () =>
     storage.upload(path, input.mime),
   );
   if (isRefused(ticket)) return ticket;
 
-  await db.insert(attachments).values({
-    id: attachmentId,
-    workspaceId: context.workspaceId,
-    projectId: input.projectId,
-    taskId: input.taskId,
-    bucket: storage.bucket,
-    path,
-    name: safeName(input.name),
-    mime: input.mime,
-    size: input.size,
-    uploadedBy: context.userId,
+  await step(db, context, async (tx) => {
+    await tx.insert(attachments).values({
+      id: attachmentId,
+      workspaceId: context.workspaceId,
+      projectId: input.projectId,
+      taskId: input.taskId,
+      bucket: storage.bucket,
+      path,
+      name: safeName(input.name),
+      mime: input.mime,
+      size: input.size,
+      uploadedBy: context.userId,
+    });
   });
 
   return ok({ attachmentId, ticket: ticket.value });
 }
 
 export async function confirmUpload(
-  db: Database,
+  db: Borrowed,
   context: TenantContext,
   storage: Storage,
   attachmentId: string,
@@ -130,7 +171,9 @@ export async function confirmUpload(
 > {
   if (!can(context, "write-task")) return refused("forbidden", context.role);
 
-  const row = await findAttachment(db, context, attachmentId);
+  const row = await step(db, context, (tx) =>
+    findAttachment(tx, context, attachmentId),
+  );
   if (!row) return refused("not-found", attachmentId);
 
   const asked = await askStore("say what landed", () => storage.head(row.path));
@@ -138,37 +181,44 @@ export async function confirmUpload(
   const stored = asked.value;
   if (!stored) return refused("missing", row.path);
 
-  // What the store holds, not what the browser claimed it would send.
+  // What the store holds, not what the browser claimed it would send. The
+  // object goes first and the row after, as before: the row still says
+  // `pending` while the object is being taken away, and a `pending` row whose
+  // object is gone is what the second step reads as `missing`.
   if (stored.size > MAX_ATTACHMENT_BYTES) {
     const removed = await askStore("remove an oversized object", () =>
       storage.remove(row.path),
     );
     if (isRefused(removed)) return removed;
-    await db
-      .delete(attachments)
+    await step(db, context, async (tx) => {
+      await tx
+        .delete(attachments)
+        .where(
+          and(
+            eq(attachments.workspaceId, context.workspaceId),
+            eq(attachments.id, attachmentId),
+          ),
+        );
+    });
+    return refused("too-large", String(stored.size));
+  }
+
+  await step(db, context, async (tx) => {
+    await tx
+      .update(attachments)
+      .set({
+        status: "stored",
+        size: stored.size,
+        checksum: stored.checksum,
+        storedAt: new Date(),
+      })
       .where(
         and(
           eq(attachments.workspaceId, context.workspaceId),
           eq(attachments.id, attachmentId),
         ),
       );
-    return refused("too-large", String(stored.size));
-  }
-
-  await db
-    .update(attachments)
-    .set({
-      status: "stored",
-      size: stored.size,
-      checksum: stored.checksum,
-      storedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(attachments.workspaceId, context.workspaceId),
-        eq(attachments.id, attachmentId),
-      ),
-    );
+  });
 
   return ok({ attachmentId, size: stored.size, checksum: stored.checksum });
 }
@@ -177,15 +227,24 @@ export async function confirmUpload(
  * A URL that reads the bytes, good for `seconds`. The workspace check happens
  * here, before the signature exists — which is the whole point of the private
  * bucket.
+ *
+ * The check and the signature are two steps on purpose: handed nothing to
+ * borrow, the row is read in a scope that has committed before the store is
+ * asked to sign, so nothing holds a backend while it does. Handed a
+ * transaction — which is what `/api/attachments/[attachmentId]` lends it
+ * today — the signature happens with that scope still open, which is the one
+ * thing ADR 0002 asks a caller of this module not to do.
  */
 export async function linkFor(
-  db: Database,
+  db: Borrowed,
   context: TenantContext,
   storage: Storage,
   attachmentId: string,
   seconds = 5 * 60,
 ): Promise<Result<{ url: string; expiresAt: Date }, AttachmentFailure>> {
-  const row = await findAttachment(db, context, attachmentId);
+  const row = await step(db, context, (tx) =>
+    findAttachment(tx, context, attachmentId),
+  );
   if (!row) return refused("not-found", attachmentId);
 
   const url = await askStore("sign a link", () => storage.signedUrl(row.path, seconds));
@@ -195,34 +254,41 @@ export async function linkFor(
 }
 
 export async function removeAttachment(
-  db: Database,
+  db: Borrowed,
   context: TenantContext,
   storage: Storage,
   attachmentId: string,
 ): Promise<Result<{ attachmentId: string }, AttachmentFailure>> {
   if (!can(context, "write-task")) return refused("forbidden", context.role);
 
-  const row = await findAttachment(db, context, attachmentId);
+  const row = await step(db, context, (tx) =>
+    findAttachment(tx, context, attachmentId),
+  );
   if (!row) return refused("not-found", attachmentId);
 
   // The bytes first: a row without an object is a broken card, an object
-  // without a row is a leak nobody can see.
+  // without a row is a leak nobody can see. Reading the path and deleting the
+  // row are two scopes now, which is the same trade seen from the other side:
+  // between them the object is already gone, and the card is broken until the
+  // delete commits.
   const removed = await askStore("remove an object", () => storage.remove(row.path));
   if (isRefused(removed)) return removed;
-  await db
-    .delete(attachments)
-    .where(
-      and(
-        eq(attachments.workspaceId, context.workspaceId),
-        eq(attachments.id, attachmentId),
-      ),
-    );
+  await step(db, context, async (tx) => {
+    await tx
+      .delete(attachments)
+      .where(
+        and(
+          eq(attachments.workspaceId, context.workspaceId),
+          eq(attachments.id, attachmentId),
+        ),
+      );
+  });
 
   return ok({ attachmentId });
 }
 
 export async function findAttachment(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   attachmentId: string,
 ): Promise<typeof attachments.$inferSelect | null> {

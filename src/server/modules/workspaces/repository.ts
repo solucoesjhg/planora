@@ -9,7 +9,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { keyBetween } from "@/domain/kanban";
 import { randomToken } from "@/lib/token";
 import type { Role, TenantContext } from "@/server/auth/tenant";
-import type { Database, Executor } from "@/server/db/client";
+import type { Executor } from "@/server/db/client";
 import { createExampleProject } from "@/server/modules/projects/example";
 import { users, workspaceMembers, workspaces } from "@/server/db/schema";
 
@@ -99,12 +99,17 @@ export async function resolveTenantContext(
  * outside the transaction that created the account, so this is also the repair
  * path — an account that somehow has no workspace gets one on first use rather
  * than a 404.
+ *
+ * The workspace and the membership it writes are what every policy resolves
+ * through, so at this moment there is no membership for one to check: the
+ * executor has to come from the system lane (ADR 0002). The transaction stays
+ * its own, and becomes a savepoint when it is handed one.
  */
 export async function ensurePersonalWorkspace(
-  db: Database,
+  executor: Executor,
   user: { id: string; name: string; email: string },
 ): Promise<string> {
-  return db.transaction(async (tx) => {
+  return executor.transaction(async (tx) => {
     // Serializes concurrent repairs for this user, and nothing else.
     await tx.execute(sql`select id from users where id = ${user.id} for update`);
 

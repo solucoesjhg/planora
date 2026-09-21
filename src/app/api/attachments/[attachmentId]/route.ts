@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isRefused } from "@/lib/result";
 import { currentSession } from "@/server/auth/dal";
-import { getDatabase } from "@/server/db/client";
+import { withTenant, withUser } from "@/server/db/client";
 import { linkFor } from "@/server/modules/tasks/attachments";
 import { resolveTenantContext } from "@/server/modules/workspaces/repository";
 import { getStorage } from "@/server/storage";
@@ -29,11 +29,14 @@ export async function GET(
   const session = await currentSession();
   if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const database = getDatabase();
-  const tenant = await resolveTenantContext(database, session.userId);
+  const tenant = await withUser(session.userId, (tx) =>
+    resolveTenantContext(tx, session.userId),
+  );
   if (!tenant) return NextResponse.json({ error: "not-found" }, { status: 404 });
 
-  const link = await linkFor(database, tenant, getStorage(), attachmentId);
+  const link = await withTenant(tenant, (tx) =>
+    linkFor(tx, tenant, getStorage(), attachmentId),
+  );
   if (isRefused(link)) {
     // The store not answering is not "no such file". The row was found first,
     // in this workspace, so a 503 here teaches a stranger nothing.

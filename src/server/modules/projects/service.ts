@@ -4,6 +4,10 @@
  * The service authorizes and transacts; the decision about whether a project
  * may be called finished belongs to `domain/projects`, and is the same function
  * the interface will call to decide whether to even offer the button.
+ *
+ * The transaction is no longer the service's own: `inScope` reuses the scope the
+ * Server Action opened, so each of these becomes a savepoint inside it and the
+ * settings the policies read stay applied throughout (ADR 0002).
  */
 
 import { keyBetween } from "@/domain/kanban";
@@ -11,7 +15,7 @@ import { canCompleteProject, type CompletionRefusal } from "@/domain/projects";
 import type { CalendarDate } from "@/domain/types";
 import { ok, refused, type Result } from "@/lib/result";
 import { can, provenance, type TenantContext } from "@/server/auth/tenant";
-import type { Database } from "@/server/db/client";
+import { inScope, type Executor } from "@/server/db/client";
 import { emit } from "@/server/events/outbox";
 import { loadBoardContext } from "@/server/modules/board/repository";
 import {
@@ -40,13 +44,13 @@ export type CreateProjectInput = {
 };
 
 export async function createProject(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: CreateProjectInput,
 ): Promise<Result<{ projectId: string }, ProjectFailure>> {
   if (!can(context, "manage-project")) return refused("forbidden", context.role);
 
-  return db.transaction(async (tx) => {
+  return inScope(db, context, async (tx) => {
     const clientId = input.clientName?.trim()
       ? await ensureClient(tx, context, input.clientName)
       : null;
@@ -73,13 +77,13 @@ export async function createProject(
 }
 
 export async function completeProject(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: { projectId: string; ack?: CompletionRefusal },
 ): Promise<Result<{ projectId: string }, ProjectFailure>> {
   if (!can(context, "manage-project")) return refused("forbidden", context.role);
 
-  return db.transaction(async (tx) => {
+  return inScope(db, context, async (tx) => {
     const project = await findProject(tx, context, input.projectId);
     if (!project) return refused("not-found", input.projectId);
     if (project.status === "completed") {
@@ -113,13 +117,13 @@ export async function completeProject(
 }
 
 export async function reopenProject(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   projectId: string,
 ): Promise<Result<{ projectId: string }, ProjectFailure>> {
   if (!can(context, "manage-project")) return refused("forbidden", context.role);
 
-  return db.transaction(async (tx) => {
+  return inScope(db, context, async (tx) => {
     const project = await findProject(tx, context, projectId);
     if (!project) return refused("not-found", projectId);
     if (project.status === "active") return refused("already-active", projectId);
@@ -149,13 +153,13 @@ export type EditProjectInput = {
 };
 
 export async function editProject(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: EditProjectInput,
 ): Promise<Result<{ projectId: string }, ProjectFailure>> {
   if (!can(context, "manage-project")) return refused("forbidden", context.role);
 
-  return db.transaction(async (tx) => {
+  return inScope(db, context, async (tx) => {
     const project = await findProject(tx, context, input.projectId);
     if (!project) return refused("not-found", input.projectId);
 
@@ -181,7 +185,7 @@ export async function editProject(
 }
 
 export async function deleteProject(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   projectId: string,
 ): Promise<Result<{ projectId: string }, ProjectFailure>> {
@@ -199,7 +203,7 @@ export async function deleteProject(
  * neighbours. The grid sends the ids it dropped between, not a whole order.
  */
 export async function moveProject(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: { projectId: string; afterId?: string | null; beforeId?: string | null },
 ): Promise<Result<{ position: string }, ProjectFailure>> {

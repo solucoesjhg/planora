@@ -1,12 +1,14 @@
 import { Bell } from "lucide-react";
 import Link from "next/link";
 import type { TenantContext } from "@/server/auth/tenant";
-import { getDatabase } from "@/server/db/client";
+import { withTenant } from "@/server/db/client";
 import { unreadCount } from "@/server/modules/notifications/repository";
 
 /** The way into the inbox, with how much is waiting there. */
 export async function InboxBell({ context }: { context: TenantContext }) {
-  const unread = await unreadCount(getDatabase(), context);
+  // A scope of its own: this renders inside a page that already had one, and
+  // a transaction is not a value `cache()` can hold across a render.
+  const unread = await withTenant(context, (tx) => unreadCount(tx, context));
 
   return (
     <Link

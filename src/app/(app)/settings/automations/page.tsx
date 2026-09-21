@@ -9,7 +9,7 @@ import { timeAgo } from "@/lib/activity";
 import { RUN_STATUS_LABELS, TRIGGER_LABELS } from "@/lib/strings";
 import { requireWorkspace } from "@/server/auth/dal";
 import { can } from "@/server/auth/tenant";
-import { getDatabase } from "@/server/db/client";
+import { withTenant } from "@/server/db/client";
 import { listAutomations, listRuns } from "@/server/modules/automations/repository";
 import { membersOf } from "@/server/modules/workspaces/repository";
 import type { Trigger } from "@/domain/automations";
@@ -20,12 +20,14 @@ import type { Trigger } from "@/domain/automations";
  */
 export default async function AutomationsPage() {
   const workspace = await requireWorkspace();
-  const database = getDatabase();
-  const [rules, runs, members] = await Promise.all([
-    listAutomations(database, workspace),
-    listRuns(database, workspace, 30),
-    membersOf(database, workspace),
-  ]);
+  // Three reads, one scope: the page asks its whole question at once.
+  const [rules, runs, members] = await withTenant(workspace, (tx) =>
+    Promise.all([
+      listAutomations(tx, workspace),
+      listRuns(tx, workspace, 30),
+      membersOf(tx, workspace),
+    ]),
+  );
   const mayManage = can(workspace, "manage-project");
   const now = new Date();
 

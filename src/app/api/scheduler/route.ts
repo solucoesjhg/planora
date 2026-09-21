@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { getDatabase } from "@/server/db/client";
+import { getSystemDatabase } from "@/server/db/client";
 import { senderFromEnvironment } from "@/server/email/sender";
 import { drainOutbox } from "@/server/events/dispatcher";
 import { runRoutines } from "@/server/modules/automations/routines";
@@ -38,7 +38,7 @@ async function tick(request: Request): Promise<Response> {
   }
 
   const now = new Date();
-  const database = getDatabase();
+  const database = getSystemDatabase();
   const sender = senderFromEnvironment();
   const baseUrl = process.env["BETTER_AUTH_URL"] ?? new URL(request.url).origin;
 

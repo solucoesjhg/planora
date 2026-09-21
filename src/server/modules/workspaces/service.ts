@@ -7,10 +7,10 @@
  */
 
 import { and, eq, gt, isNull } from "drizzle-orm";
-import { ok, refused, type Result } from "@/lib/result";
+import { isRefused, ok, refused, type Result } from "@/lib/result";
 import { hashToken, randomToken } from "@/lib/token";
 import { can, provenance, type Role, type TenantContext } from "@/server/auth/tenant";
-import type { Database } from "@/server/db/client";
+import type { Executor } from "@/server/db/client";
 import {
   users,
   workspaceInvitations,
@@ -23,11 +23,9 @@ import { emit } from "@/server/events/outbox";
 
 const INVITATION_DAYS = 7;
 
-export type InviteFailure =
-  | "forbidden"
-  | "already-member"
-  | "already-invited"
-  | "undeliverable";
+export type PrepareFailure = "forbidden" | "already-member" | "already-invited";
+
+export type InviteFailure = PrepareFailure | "undeliverable";
 
 export type InviteInput = {
   readonly email: string;
@@ -37,17 +35,38 @@ export type InviteInput = {
   readonly now?: Date;
 };
 
-export async function inviteMember(
-  db: Database,
+/**
+ * The row the message is about, carried from the scope that wrote it to the
+ * one that finishes it.
+ *
+ * The token lives here and in the link, never in a column: what is stored is
+ * its SHA-256, which is why this has to be handed on rather than read back.
+ */
+export type PreparedInvitation = {
+  readonly invitationId: string;
+  readonly token: string;
+  readonly email: string;
+  readonly role: Role;
+  readonly workspaceName: string;
+  readonly invitedByName: string;
+};
+
+/**
+ * Everything the invitation decides and writes, and nothing that waits on the
+ * network — so this is the part that belongs inside the scope (ADR 0002).
+ */
+export async function prepareInvitation(
+  executor: Executor,
   context: TenantContext,
-  input: InviteInput,
-): Promise<Result<{ invitationId: string; token: string }, InviteFailure>> {
+  input: { readonly email: string; readonly role?: Role; readonly now?: Date },
+): Promise<Result<PreparedInvitation, PrepareFailure>> {
   if (!can(context, "manage-members")) return refused("forbidden", context.role);
 
   const email = input.email.trim().toLowerCase();
   const now = input.now ?? new Date();
+  const role = input.role ?? "member";
 
-  const [existingMember] = await db
+  const [existingMember] = await executor
     .select({ id: workspaceMembers.id })
     .from(workspaceMembers)
     .innerJoin(users, eq(users.id, workspaceMembers.userId))
@@ -64,12 +83,12 @@ export async function inviteMember(
   const token = randomToken();
   const expiresAt = new Date(now.getTime() + INVITATION_DAYS * 86_400_000);
 
-  const [invitation] = await db
+  const [invitation] = await executor
     .insert(workspaceInvitations)
     .values({
       workspaceId: context.workspaceId,
       email,
-      role: input.role ?? "member",
+      role,
       tokenHash: await hashToken(token),
       invitedBy: context.userId,
       expiresAt,
@@ -79,54 +98,119 @@ export async function inviteMember(
 
   if (!invitation) return refused("already-invited", email);
 
-  const [workspace] = await db
+  const [workspace] = await executor
     .select({ name: workspaces.name })
     .from(workspaces)
     .where(eq(workspaces.id, context.workspaceId))
     .limit(1);
 
-  const [invitedBy] = await db
+  const [invitedBy] = await executor
     .select({ name: users.name })
     .from(users)
     .where(eq(users.id, context.userId))
     .limit(1);
 
+  return ok({
+    invitationId: invitation.id,
+    token,
+    email,
+    role,
+    workspaceName: workspace?.name ?? "Planora",
+    invitedByName: invitedBy?.name ?? "Alguém",
+  });
+}
+
 /**
-   * The row exists and the link is only in this message: if it cannot be
-   * delivered, the invitation must not survive. Resend refuses outright when
-   * the sender is its test domain and the recipient is anybody but the account
-   * holder — which used to leave a pending invitation nobody could receive
-   * and nobody could cancel, since a second attempt answers "already invited".
-   */
+ * The message. It takes no executor because it is the one step that leaves
+ * this machine: a pooled backend held open across a Resend call is idle in
+ * transaction, and the role's timeout is the backstop, not the design.
+ */
+export async function deliverInvitation(
+  sender: EmailSender,
+  baseUrl: string,
+  prepared: PreparedInvitation,
+): Promise<Result<undefined, "undeliverable">> {
   try {
-    await input.sender.send(
+    await sender.send(
       invitationEmail({
-        to: email,
-        workspaceName: workspace?.name ?? "Planora",
-        invitedByName: invitedBy?.name ?? "Alguém",
-        url: `${input.baseUrl}/invitations/${token}`,
+        to: prepared.email,
+        workspaceName: prepared.workspaceName,
+        invitedByName: prepared.invitedByName,
+        url: `${baseUrl}/invitations/${prepared.token}`,
       }),
     );
+    return ok(undefined);
   } catch (error) {
-    await db
-      .delete(workspaceInvitations)
-      .where(eq(workspaceInvitations.id, invitation.id));
-
     return refused(
       "undeliverable",
       error instanceof Error ? error.message : String(error),
     );
   }
+}
 
-  await emit(db, {
+/**
+ * The row exists and the link is only in that message: if it cannot be
+ * delivered, the invitation must not survive. Resend refuses outright when the
+ * sender is its test domain and the recipient is anybody but the account
+ * holder — which used to leave a pending invitation nobody could receive and
+ * nobody could cancel, since a second attempt answers "already invited".
+ */
+export async function discardInvitation(
+  executor: Executor,
+  invitationId: string,
+): Promise<void> {
+  await executor
+    .delete(workspaceInvitations)
+    .where(eq(workspaceInvitations.id, invitationId));
+}
+
+/** Delivered, so it happened: the event is written once the message is out. */
+export async function confirmInvitation(
+  executor: Executor,
+  context: TenantContext,
+  prepared: PreparedInvitation,
+): Promise<void> {
+  await emit(executor, {
     workspaceId: context.workspaceId,
     type: "member.invited",
-    payload: { invitationId: invitation.id, email, role: input.role ?? "member" },
-    dedupeKey: `member.invited:${invitation.id}`,
+    payload: {
+      invitationId: prepared.invitationId,
+      email: prepared.email,
+      role: prepared.role,
+    },
+    dedupeKey: `member.invited:${prepared.invitationId}`,
     ...provenance(context),
   });
+}
 
-  return ok({ invitationId: invitation.id, token });
+/**
+ * The whole invitation against a single executor, in order.
+ *
+ * The Server Action does not call this one: it runs the same four steps with
+ * the writing scope closed around the first and the last, so the wait on the
+ * mail provider happens with no transaction open (ADR 0002). This is the shape
+ * a test or a script wants — one executor, one call — and it is what keeps the
+ * ordering the phases depend on written down in one place.
+ */
+export async function inviteMember(
+  executor: Executor,
+  context: TenantContext,
+  input: InviteInput,
+): Promise<Result<{ invitationId: string; token: string }, InviteFailure>> {
+  const prepared = await prepareInvitation(executor, context, input);
+  if (isRefused(prepared)) return prepared;
+
+  const delivered = await deliverInvitation(input.sender, input.baseUrl, prepared.value);
+  if (isRefused(delivered)) {
+    await discardInvitation(executor, prepared.value.invitationId);
+    return delivered;
+  }
+
+  await confirmInvitation(executor, context, prepared.value);
+  return ok({
+    invitationId: prepared.value.invitationId,
+    token: prepared.value.token,
+  });
 }
 
 export type InvitationPreview =
@@ -142,15 +226,19 @@ export type InvitationPreview =
 /**
  * What the page shows before the person decides. Reading is not accepting: a
  * link a mail client prefetched must not join anybody to anything.
+ *
+ * The page it feeds arrives with a token and no session, so the executor it is
+ * handed comes from `withInvitation`, the lane whose policy compares the same
+ * hash this computes (ADR 0002).
  */
 export async function previewInvitation(
-  db: Database,
+  executor: Executor,
   token: string,
   now: Date = new Date(),
 ): Promise<InvitationPreview> {
   const tokenHash = await hashToken(token);
 
-  const [row] = await db
+  const [row] = await executor
     .select({
       acceptedAt: workspaceInvitations.acceptedAt,
       expiresAt: workspaceInvitations.expiresAt,
@@ -180,15 +268,21 @@ export async function previewInvitation(
 
 export type AcceptFailure = "invalid-token" | "expired" | "already-member";
 
+/**
+ * Joining. It writes the membership every other policy resolves through, so
+ * there is nothing yet for the tenant lane to check it against: the executor
+ * has to come from the system lane, and the transaction below stays its own
+ * (ADR 0002). Handed one, it becomes a savepoint inside it.
+ */
 export async function acceptInvitation(
-  db: Database,
+  executor: Executor,
   input: { token: string; userId: string; now?: Date },
 ): Promise<Result<{ workspaceId: string; role: Role }, AcceptFailure>> {
   const now = input.now ?? new Date();
 
   const tokenHash = await hashToken(input.token);
 
-  return db.transaction(async (tx) => {
+  return executor.transaction(async (tx) => {
     const [invitation] = await tx
       .select()
       .from(workspaceInvitations)
@@ -239,11 +333,11 @@ export async function acceptInvitation(
 
 /** Live invitations, for the members screen that arrives with Phase 5. */
 export async function pendingInvitations(
-  db: Database,
+  executor: Executor,
   context: TenantContext,
   now: Date = new Date(),
 ) {
-  return db
+  return executor
     .select({
       id: workspaceInvitations.id,
       email: workspaceInvitations.email,
@@ -276,13 +370,13 @@ export type DeleteWorkspaceFailure = "forbidden" | "not-found" | "mismatch";
  * workspace, the way signup does.
  */
 export async function deleteWorkspace(
-  db: Database,
+  executor: Executor,
   context: TenantContext,
   confirmation: string,
 ): Promise<Result<{ workspaceId: string }, DeleteWorkspaceFailure>> {
   if (!can(context, "delete-workspace")) return refused("forbidden", context.role);
 
-  const [workspace] = await db
+  const [workspace] = await executor
     .select({ id: workspaces.id, name: workspaces.name })
     .from(workspaces)
     .where(eq(workspaces.id, context.workspaceId))
@@ -290,6 +384,6 @@ export async function deleteWorkspace(
   if (!workspace) return refused("not-found", context.workspaceId);
   if (confirmation.trim() !== workspace.name) return refused("mismatch");
 
-  await db.delete(workspaces).where(eq(workspaces.id, workspace.id));
+  await executor.delete(workspaces).where(eq(workspaces.id, workspace.id));
   return ok({ workspaceId: workspace.id });
 }

@@ -6,6 +6,11 @@
  * An action validates its input and hands over. It does not decide anything:
  * the service authorizes and transacts, and the domain says whether the move
  * is allowed at all.
+ *
+ * It is, though, where the two barriers of Phase 10 sit, because it is the one
+ * place that knows a write is about to happen: `writing` spends the person's
+ * allowance and then opens the scope the policies read, and hands the service
+ * the transaction as the `Executor` it already accepted (ADR 0002).
  */
 
 import { revalidatePath } from "next/cache";
@@ -15,7 +20,7 @@ import { z } from "zod";
 import { LAST_BOARD_COOKIE } from "@/lib/last-board";
 import { isRefused, type Result } from "@/lib/result";
 import { requireWorkspace } from "@/server/auth/dal";
-import { getDatabase } from "@/server/db/client";
+import { writing, type Limited } from "@/server/limits";
 import {
   completeProject,
   createProject,
@@ -26,9 +31,18 @@ import {
   type ProjectFailure,
 } from "./service";
 
+/**
+ * `rate-limited` joins the service's own refusals rather than throwing: from
+ * the client's side it is one more reason the write did not happen, and the
+ * grid already has somewhere to say so.
+ */
 export type ActionResult =
   | { readonly ok: true }
-  | { readonly ok: false; readonly reason: ProjectFailure; readonly detail?: string };
+  | {
+      readonly ok: false;
+      readonly reason: Limited<ProjectFailure>;
+      readonly detail?: string;
+    };
 
 /** A calendar day travels as `YYYY-MM-DD`, never as an instant. */
 const optionalDate = z
@@ -54,13 +68,15 @@ export async function createProjectAction(
   const parsed = createSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await createProject(getDatabase(), context, {
-    name: parsed.name,
-    description: parsed.description ?? "",
-    clientName: parsed.clientName,
-    startDate: parsed.startDate,
-    dueDate: parsed.dueDate,
-  });
+  const result = await writing(context, "write", (tx) =>
+    createProject(tx, context, {
+      name: parsed.name,
+      description: parsed.description ?? "",
+      clientName: parsed.clientName,
+      startDate: parsed.startDate,
+      dueDate: parsed.dueDate,
+    }),
+  );
 
   revalidatePath("/projects");
 
@@ -78,14 +94,16 @@ export async function editProjectAction(
   const parsed = editSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await editProject(getDatabase(), context, {
-    projectId: parsed.projectId,
-    ...(parsed.name === undefined ? {} : { name: parsed.name }),
-    ...(parsed.description === undefined ? {} : { description: parsed.description }),
-    ...(parsed.clientName === undefined ? {} : { clientName: parsed.clientName }),
-    ...(parsed.startDate === undefined ? {} : { startDate: parsed.startDate }),
-    ...(parsed.dueDate === undefined ? {} : { dueDate: parsed.dueDate }),
-  });
+  const result = await writing(context, "write", (tx) =>
+    editProject(tx, context, {
+      projectId: parsed.projectId,
+      ...(parsed.name === undefined ? {} : { name: parsed.name }),
+      ...(parsed.description === undefined ? {} : { description: parsed.description }),
+      ...(parsed.clientName === undefined ? {} : { clientName: parsed.clientName }),
+      ...(parsed.startDate === undefined ? {} : { startDate: parsed.startDate }),
+      ...(parsed.dueDate === undefined ? {} : { dueDate: parsed.dueDate }),
+    }),
+  );
 
   revalidatePath("/projects");
 
@@ -105,10 +123,12 @@ export async function completeProjectAction(
   const parsed = completeSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await completeProject(getDatabase(), context, {
-    projectId: parsed.projectId,
-    ...(parsed.ack ? { ack: parsed.ack } : {}),
-  });
+  const result = await writing(context, "write", (tx) =>
+    completeProject(tx, context, {
+      projectId: parsed.projectId,
+      ...(parsed.ack ? { ack: parsed.ack } : {}),
+    }),
+  );
 
   revalidatePath("/projects");
 
@@ -124,7 +144,9 @@ export async function reopenProjectAction(
   const { projectId } = idSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await reopenProject(getDatabase(), context, projectId);
+  const result = await writing(context, "write", (tx) =>
+    reopenProject(tx, context, projectId),
+  );
   revalidatePath("/projects");
   dispatchSoon();
   return toActionResult(result);
@@ -136,7 +158,9 @@ export async function deleteProjectAction(
   const { projectId } = idSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await deleteProject(getDatabase(), context, projectId);
+  const result = await writing(context, "write", (tx) =>
+    deleteProject(tx, context, projectId),
+  );
   revalidatePath("/projects");
   dispatchSoon();
 
@@ -159,11 +183,13 @@ export async function moveProjectAction(
   const parsed = moveSchema.parse(input);
   const context = await requireWorkspace();
 
-  const result = await moveProject(getDatabase(), context, {
-    projectId: parsed.projectId,
-    afterId: parsed.afterId ?? null,
-    beforeId: parsed.beforeId ?? null,
-  });
+  const result = await writing(context, "write", (tx) =>
+    moveProject(tx, context, {
+      projectId: parsed.projectId,
+      afterId: parsed.afterId ?? null,
+      beforeId: parsed.beforeId ?? null,
+    }),
+  );
 
   revalidatePath("/projects");
 
@@ -177,7 +203,7 @@ export async function moveProjectAction(
  * discriminated union is friendlier to read on the client.
  */
 function toActionResult(
-  result: Result<unknown, ProjectFailure>,
+  result: Result<unknown, Limited<ProjectFailure>>,
 ): ActionResult {
   if (!isRefused(result)) return { ok: true };
   return result.detail === undefined

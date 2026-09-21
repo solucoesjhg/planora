@@ -1,10 +1,14 @@
 /**
  * Moving a task (DEVELOPMENT_PLAN.md §2.3, §3.6).
  *
- * The service authorizes, opens the transaction and asks the domain. It does
+ * The service authorizes, opens the scope and asks the domain. It does
  * not re-implement the rule: `canMoveTask` is the same function the board calls
  * during a drag, so a forged request meets exactly the refusal the interface
  * already showed.
+ *
+ * The scope is `inScope`, not a transaction of its own: from Phase 10 the entry
+ * point has already opened one, and this becomes a savepoint inside it (ADR
+ * 0002). The atomicity of the move is unchanged either way.
  */
 
 import { unresolvedDependencies } from "@/domain/dependencies";
@@ -20,7 +24,7 @@ import { archiveNotes } from "@/domain/phase-history";
 import type { BoardContext, Phase } from "@/domain/types";
 import { columnById, taskById } from "@/domain/types";
 import { can, provenance, type TenantContext } from "@/server/auth/tenant";
-import type { Database } from "@/server/db/client";
+import { inScope, type Executor } from "@/server/db/client";
 import { emit } from "@/server/events/outbox";
 import {
   applyMove,
@@ -60,7 +64,7 @@ export type MoveTaskSuccess = {
 };
 
 export async function moveTask(
-  db: Database,
+  db: Executor,
   context: TenantContext,
   input: MoveTaskInput,
 ): Promise<Result<MoveTaskSuccess, MoveTaskFailure>> {
@@ -68,7 +72,7 @@ export async function moveTask(
 
   const now = input.now ?? new Date();
 
-  return db.transaction(async (tx) => {
+  return inScope(db, context, async (tx) => {
     const row = await findTask(tx, context, input.taskId);
     if (!row) return refused("not-found", input.taskId);
 

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { after } from "next/server";
-import { getDatabase } from "@/server/db/client";
+import { getSystemDatabase } from "@/server/db/client";
 import { senderFromEnvironment } from "@/server/email/sender";
 import { deliverPendingEmails } from "@/server/modules/notifications/service";
 import { drainOutbox } from "./dispatcher";
@@ -22,7 +22,12 @@ import { drainOutbox } from "./dispatcher";
 export function dispatchSoon(): void {
   after(async () => {
     try {
-      const database = getDatabase();
+      // The outbox is drained across every workspace by design, and this
+      // runs after a request that had a workspace — so it is the system lane,
+      // not the request's. Missing that would empty the activity feed and the
+      // whole notification inbox the day the barrier went on, silently: the
+      // `catch` below is the only thing that would ever have seen it.
+      const database = getSystemDatabase();
       await drainOutbox(database);
       // What the dispatch just decided to send leaves now, not on the next
       // tick of a clock that may be an hour away on a small plan.

@@ -11,7 +11,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { newId } from "@/lib/id";
-import { getDatabase, type Database } from "@/server/db/client";
+import { getSystemDatabase, type Database } from "@/server/db/client";
 import * as schema from "@/server/db/schema";
 import { senderFromEnvironment, type EmailSender } from "@/server/email/sender";
 import {
@@ -234,7 +234,7 @@ export function getAuth(): Auth {
   if (instance) return instance;
 
   instance = createAuth({
-    database: getDatabase(),
+    database: getSystemDatabase(),
     sender: senderFromEnvironment(),
     baseUrl: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
     secret: authSecret(),

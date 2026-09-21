@@ -5,15 +5,16 @@ import { PreferencesForm } from "@/features/notifications/preferences-form";
 import { AccountBar } from "@/features/workspace/account-bar";
 import type { NotifiableType } from "@/lib/notifications";
 import { requireWorkspace } from "@/server/auth/dal";
-import { getDatabase } from "@/server/db/client";
+import { withTenant } from "@/server/db/client";
 import { preferencesOf } from "@/server/modules/notifications/repository";
 
 /** Which events reach this person, by which channel, and how often a digest goes. */
 export default async function NotificationSettingsPage() {
   const workspace = await requireWorkspace();
-  const saved = (await preferencesOf(getDatabase(), workspace.workspaceId, [workspace.userId])).get(
-    workspace.userId,
+  const preferences = await withTenant(workspace, (tx) =>
+    preferencesOf(tx, workspace.workspaceId, [workspace.userId]),
   );
+  const saved = preferences.get(workspace.userId);
 
   return (
     <ToastProvider>

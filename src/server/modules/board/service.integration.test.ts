@@ -3,7 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { MAX_KEY_LENGTH } from "@/domain/kanban";
 import { isRefused } from "@/lib/result";
 import { tenantContext } from "@/server/auth/tenant";
-import type { Connection } from "@/server/db/client";
+import type { Connection, Transaction } from "@/server/db/client";
 import { activityLogs, outboxEvents, taskDependencies, tasks } from "@/server/db/schema";
 import { seed, seedIds } from "@/server/db/seed";
 import { dispatchPending } from "@/server/events/dispatcher";
@@ -14,6 +14,15 @@ const suite = describe.skipIf(!hasDatabase);
 
 suite("moveTask against a real database", () => {
   let connection: Connection;
+
+  /**
+   * The scope a Server Action opens in production (ADR 0002). The suite holds a
+   * connection of its own, not the pool `withTenant` reaches for, so it opens
+   * the scope itself and hands the service the transaction — which is what the
+   * services now expect to be given.
+   */
+  const scoped = <T>(run: (tx: Transaction) => Promise<T>): Promise<T> =>
+    connection.db.transaction(run);
 
   const doneColumn = seedIds.column(0, 3);
   const reviewColumn = seedIds.column(0, 2);
@@ -34,10 +43,12 @@ suite("moveTask against a real database", () => {
   it("refuses to move a blocked task into done, and writes nothing", async () => {
     const blockedTask = seedIds.task(2);
 
-    const result = await moveTask(connection.db, owner(), {
-      taskId: blockedTask,
-      toColumnId: doneColumn,
-    });
+    const result = await scoped((tx) =>
+      moveTask(tx, owner(), {
+        taskId: blockedTask,
+        toColumnId: doneColumn,
+      }),
+    );
 
     expect(isRefused(result) && result.reason).toBe("blocked");
 
@@ -52,19 +63,23 @@ suite("moveTask against a real database", () => {
   });
 
   it("refuses a task whose dependency is not done", async () => {
-    const result = await moveTask(connection.db, owner(), {
-      taskId: seedIds.task(5),
-      toColumnId: doneColumn,
-    });
+    const result = await scoped((tx) =>
+      moveTask(tx, owner(), {
+        taskId: seedIds.task(5),
+        toColumnId: doneColumn,
+      }),
+    );
 
     expect(isRefused(result) && result.reason).toBe("dependencies");
   });
 
   it("leaves exactly one event when a move succeeds", async () => {
-    const result = await moveTask(connection.db, owner(), {
-      taskId: seedIds.task(1),
-      toColumnId: reviewColumn,
-    });
+    const result = await scoped((tx) =>
+      moveTask(tx, owner(), {
+        taskId: seedIds.task(1),
+        toColumnId: reviewColumn,
+      }),
+    );
 
     expect(isRefused(result)).toBe(false);
 
@@ -76,10 +91,12 @@ suite("moveTask against a real database", () => {
   });
 
   it("says a task was completed when it enters done, beside the move", async () => {
-    const result = await moveTask(connection.db, owner(), {
-      taskId: seedIds.task(1),
-      toColumnId: doneColumn,
-    });
+    const result = await scoped((tx) =>
+      moveTask(tx, owner(), {
+        taskId: seedIds.task(1),
+        toColumnId: doneColumn,
+      }),
+    );
     expect(isRefused(result)).toBe(false);
 
     const events = await connection.db.select().from(outboxEvents);
@@ -114,10 +131,12 @@ suite("moveTask against a real database", () => {
       },
     ]);
 
-    const result = await moveTask(connection.db, owner(), {
-      taskId: seedIds.task(1),
-      toColumnId: doneColumn,
-    });
+    const result = await scoped((tx) =>
+      moveTask(tx, owner(), {
+        taskId: seedIds.task(1),
+        toColumnId: doneColumn,
+      }),
+    );
     expect(isRefused(result)).toBe(false);
 
     const resolved = (await connection.db.select().from(outboxEvents)).filter(
@@ -131,11 +150,13 @@ suite("moveTask against a real database", () => {
   });
 
   it("archives the notes of the phase it leaves", async () => {
-    await moveTask(connection.db, owner(), {
-      taskId: seedIds.task(1),
-      toColumnId: reviewColumn,
-      phaseLabel: () => "Planejamento",
-    });
+    await scoped((tx) =>
+      moveTask(tx, owner(), {
+        taskId: seedIds.task(1),
+        toColumnId: reviewColumn,
+        phaseLabel: () => "Planejamento",
+      }),
+    );
 
     const [row] = await connection.db
       .select({ body: tasks.body, notes: tasks.internalNotes })
@@ -150,17 +171,21 @@ suite("moveTask against a real database", () => {
   it("takes an acknowledgement for an open checklist, and only for that", async () => {
     const withChecklist = seedIds.task(6);
 
-    const refusal = await moveTask(connection.db, owner(), {
-      taskId: withChecklist,
-      toColumnId: doneColumn,
-    });
+    const refusal = await scoped((tx) =>
+      moveTask(tx, owner(), {
+        taskId: withChecklist,
+        toColumnId: doneColumn,
+      }),
+    );
     expect(isRefused(refusal) && refusal.reason).toBe("checklist");
 
-    const forced = await moveTask(connection.db, owner(), {
-      taskId: withChecklist,
-      toColumnId: doneColumn,
-      ack: "checklist",
-    });
+    const forced = await scoped((tx) =>
+      moveTask(tx, owner(), {
+        taskId: withChecklist,
+        toColumnId: doneColumn,
+        ack: "checklist",
+      }),
+    );
     expect(isRefused(forced)).toBe(false);
 
     // Forced into done: the move and the completion it implies, both saying so.
@@ -188,12 +213,14 @@ suite("moveTask against a real database", () => {
     const review = seedIds.column(0, 2);
     const inReview = before.filter((row) => row.columnId === review);
 
-    const result = await moveTask(connection.db, owner(), {
-      taskId: seedIds.task(1),
-      toColumnId: review,
-      afterTaskId: inReview[0]?.id ?? null,
-      beforeTaskId: inReview[1]?.id ?? null,
-    });
+    const result = await scoped((tx) =>
+      moveTask(tx, owner(), {
+        taskId: seedIds.task(1),
+        toColumnId: review,
+        afterTaskId: inReview[0]?.id ?? null,
+        beforeTaskId: inReview[1]?.id ?? null,
+      }),
+    );
     expect(isRefused(result)).toBe(false);
 
     const after = await connection.db
@@ -242,10 +269,12 @@ suite("moveTask against a real database", () => {
         .where(eq(tasks.id, row.id));
     }
 
-    const result = await moveTask(connection.db, owner(), {
-      taskId: seedIds.task(1),
-      toColumnId: review,
-    });
+    const result = await scoped((tx) =>
+      moveTask(tx, owner(), {
+        taskId: seedIds.task(1),
+        toColumnId: review,
+      }),
+    );
     expect(isRefused(result)).toBe(false);
 
     const after = await connection.db
@@ -266,14 +295,18 @@ suite("moveTask against a real database", () => {
     const viewer = tenantContext(seedIds.workspace, seedIds.user, "viewer");
     const stranger = tenantContext(seedIds.projects[1], seedIds.user, "owner");
 
-    const byViewer = await moveTask(connection.db, viewer, {
-      taskId: seedIds.task(1),
-      toColumnId: doneColumn,
-    });
-    const byStranger = await moveTask(connection.db, stranger, {
-      taskId: seedIds.task(1),
-      toColumnId: doneColumn,
-    });
+    const byViewer = await scoped((tx) =>
+      moveTask(tx, viewer, {
+        taskId: seedIds.task(1),
+        toColumnId: doneColumn,
+      }),
+    );
+    const byStranger = await scoped((tx) =>
+      moveTask(tx, stranger, {
+        taskId: seedIds.task(1),
+        toColumnId: doneColumn,
+      }),
+    );
 
     expect(isRefused(byViewer) && byViewer.reason).toBe("forbidden");
     expect(isRefused(byStranger) && byStranger.reason).toBe("not-found");
@@ -282,6 +315,10 @@ suite("moveTask against a real database", () => {
 
 suite("the dispatcher", () => {
   let connection: Connection;
+
+  /** The suite's own scope, as above. */
+  const scoped = <T>(run: (tx: Transaction) => Promise<T>): Promise<T> =>
+    connection.db.transaction(run);
 
   beforeAll(async () => {
     connection = await connectAndMigrate();
@@ -296,12 +333,14 @@ suite("the dispatcher", () => {
   });
 
   it("turns one event into one activity entry, however often it runs", async () => {
-    await moveTask(
-      connection.db,
-      tenantContext(seedIds.workspace, seedIds.user, "owner"),
-      // Into review, not done: one event, so the count below is about the
-      // dispatcher's idempotency and nothing else.
-      { taskId: seedIds.task(1), toColumnId: seedIds.column(0, 2) },
+    await scoped((tx) =>
+      moveTask(
+        tx,
+        tenantContext(seedIds.workspace, seedIds.user, "owner"),
+        // Into review, not done: one event, so the count below is about the
+        // dispatcher's idempotency and nothing else.
+        { taskId: seedIds.task(1), toColumnId: seedIds.column(0, 2) },
+      ),
     );
 
     const first = await dispatchPending(connection.db);

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { eq } from "drizzle-orm";
 import { isRefused } from "@/lib/result";
 import { tenantContext } from "@/server/auth/tenant";
-import type { Connection } from "@/server/db/client";
+import type { Connection, Transaction } from "@/server/db/client";
 import { attachments } from "@/server/db/schema";
 import { seed, seedIds } from "@/server/db/seed";
 import { memoryStorage, type MemoryStorage } from "@/server/storage/storage";
@@ -40,15 +40,33 @@ suite("attachments", () => {
     storage = memoryStorage();
   });
 
+  /**
+   * One transaction on the suite's own connection, where production hands
+   * these four `null`.
+   *
+   * Given nothing to borrow, each of them opens a scope per statement and
+   * reaches the store between them, which is the shape the barrier requires
+   * and the reason they are not wrapped (ADR 0002). Given a transaction they
+   * run inside it, and that is what this suite hands them: the lane would
+   * take them to `getDatabase()`, which is the application's database and not
+   * this one (test-support/database-url.ts). What is asserted below is the
+   * behaviour — the order of the object and the row, and every refusal — and
+   * the scoping does not change it.
+   */
+  const scoped = <T>(run: (tx: Transaction) => Promise<T>): Promise<T> =>
+    connection.db.transaction(run);
+
   const request = (over: Partial<Parameters<typeof requestUpload>[3]> = {}) =>
-    requestUpload(connection.db, owner(), storage, {
-      projectId,
-      taskId,
-      name: "planta baixa.pdf",
-      mime: "application/pdf",
-      size: 2048,
-      ...over,
-    });
+    scoped((tx) =>
+      requestUpload(tx, owner(), storage, {
+        projectId,
+        taskId,
+        name: "planta baixa.pdf",
+        mime: "application/pdf",
+        size: 2048,
+        ...over,
+      }),
+    );
 
   it("hands out a ticket and writes a row nobody sees yet", async () => {
     const result = await request();
@@ -72,13 +90,15 @@ suite("attachments", () => {
     const svg = await request({ mime: "image/svg+xml", name: "logo.svg" });
     expect(isRefused(svg) && svg.reason).toBe("unsupported-type");
 
-    const byViewer = await requestUpload(connection.db, viewer(), storage, {
-      projectId,
-      taskId,
-      name: "a.pdf",
-      mime: "application/pdf",
-      size: 10,
-    });
+    const byViewer = await scoped((tx) =>
+      requestUpload(tx, viewer(), storage, {
+        projectId,
+        taskId,
+        name: "a.pdf",
+        mime: "application/pdf",
+        size: 10,
+      }),
+    );
     expect(isRefused(byViewer) && byViewer.reason).toBe("forbidden");
   });
 
@@ -94,11 +114,8 @@ suite("attachments", () => {
     // The browser uploads 4 bytes, having said 10.
     await storage.put(row!.path, new Uint8Array([1, 2, 3, 4]), "application/pdf");
 
-    const confirmed = await confirmUpload(
-      connection.db,
-      owner(),
-      storage,
-      ticket.value.attachmentId,
+    const confirmed = await scoped((tx) =>
+      confirmUpload(tx, owner(), storage, ticket.value.attachmentId),
     );
     if (isRefused(confirmed)) throw new Error(confirmed.reason);
 
@@ -118,11 +135,8 @@ suite("attachments", () => {
     const ticket = await request();
     if (isRefused(ticket)) throw new Error(ticket.reason);
 
-    const confirmed = await confirmUpload(
-      connection.db,
-      owner(),
-      storage,
-      ticket.value.attachmentId,
+    const confirmed = await scoped((tx) =>
+      confirmUpload(tx, owner(), storage, ticket.value.attachmentId),
     );
     expect(isRefused(confirmed) && confirmed.reason).toBe("missing");
   });
@@ -145,13 +159,15 @@ suite("attachments", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      const result = await requestUpload(connection.db, owner(), broken, {
-        projectId,
-        taskId,
-        name: "planta baixa.pdf",
-        mime: "application/pdf",
-        size: 2048,
-      });
+      const result = await scoped((tx) =>
+        requestUpload(tx, owner(), broken, {
+          projectId,
+          taskId,
+          name: "planta baixa.pdf",
+          mime: "application/pdf",
+          size: 2048,
+        }),
+      );
 
       expect(isRefused(result) && result.reason).toBe("storage-unavailable");
       expect(isRefused(result) && result.detail).toContain("Bucket not found");
@@ -180,11 +196,8 @@ suite("attachments", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     let confirmed;
     try {
-      confirmed = await confirmUpload(
-        connection.db,
-        owner(),
-        silent,
-        ticket.value.attachmentId,
+      confirmed = await scoped((tx) =>
+        confirmUpload(tx, owner(), silent, ticket.value.attachmentId),
       );
     } finally {
       logged.mockRestore();
@@ -212,7 +225,7 @@ suite("attachments", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     let link;
     try {
-      link = await linkFor(connection.db, owner(), mute, ticket.value.attachmentId);
+      link = await scoped((tx) => linkFor(tx, owner(), mute, ticket.value.attachmentId));
     } finally {
       logged.mockRestore();
     }
@@ -234,11 +247,8 @@ suite("attachments", () => {
       "application/pdf",
     );
 
-    const confirmed = await confirmUpload(
-      connection.db,
-      owner(),
-      storage,
-      ticket.value.attachmentId,
+    const confirmed = await scoped((tx) =>
+      confirmUpload(tx, owner(), storage, ticket.value.attachmentId),
     );
     expect(isRefused(confirmed) && confirmed.reason).toBe("too-large");
 
@@ -257,20 +267,13 @@ suite("attachments", () => {
     if (isRefused(ticket)) throw new Error(ticket.reason);
 
     const stranger = tenantContext(seedIds.projects[1]!, seedIds.user, "owner");
-    const refusedLink = await linkFor(
-      connection.db,
-      stranger,
-      storage,
-      ticket.value.attachmentId,
+    const refusedLink = await scoped((tx) =>
+      linkFor(tx, stranger, storage, ticket.value.attachmentId),
     );
     expect(isRefused(refusedLink) && refusedLink.reason).toBe("not-found");
 
-    const link = await linkFor(
-      connection.db,
-      owner(),
-      storage,
-      ticket.value.attachmentId,
-      60,
+    const link = await scoped((tx) =>
+      linkFor(tx, owner(), storage, ticket.value.attachmentId, 60),
     );
     if (isRefused(link)) throw new Error(link.reason);
 
@@ -289,11 +292,8 @@ suite("attachments", () => {
       .where(eq(attachments.id, ticket.value.attachmentId));
     await storage.put(row!.path, new Uint8Array([9]), "application/pdf");
 
-    const removed = await removeAttachment(
-      connection.db,
-      owner(),
-      storage,
-      ticket.value.attachmentId,
+    const removed = await scoped((tx) =>
+      removeAttachment(tx, owner(), storage, ticket.value.attachmentId),
     );
     expect(isRefused(removed)).toBe(false);
     expect(storage.objects.has(row!.path)).toBe(false);

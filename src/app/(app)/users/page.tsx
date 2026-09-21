@@ -5,7 +5,7 @@ import { ToastProvider } from "@/components/ui/toast";
 import { InviteForm } from "@/features/workspace/invite-form";
 import { requireSession, requireWorkspace } from "@/server/auth/dal";
 import { can } from "@/server/auth/tenant";
-import { getDatabase } from "@/server/db/client";
+import { withTenant } from "@/server/db/client";
 import { membersOf } from "@/server/modules/workspaces/repository";
 import { pendingInvitations } from "@/server/modules/workspaces/service";
 import { AccountBar } from "@/features/workspace/account-bar";
@@ -20,12 +20,10 @@ import { ROLE_LABELS } from "@/lib/strings";
 export default async function UsersPage() {
   const session = await requireSession();
   const workspace = await requireWorkspace();
-  const database = getDatabase();
 
-  const [members, invitations] = await Promise.all([
-    membersOf(database, workspace),
-    pendingInvitations(database, workspace),
-  ]);
+  const [members, invitations] = await withTenant(workspace, (tx) =>
+    Promise.all([membersOf(tx, workspace), pendingInvitations(tx, workspace)]),
+  );
 
   const mayInvite = can(workspace, "manage-members");
 
