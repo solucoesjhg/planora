@@ -6,8 +6,25 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { signIn } from "@/lib/auth-client";
+import { cn } from "@/lib/cn";
 
-export function LoginForm({ next }: { next: string }) {
+/** What the verification link left behind for this form to say. */
+export type LoginNotice = {
+  readonly tone: "done" | "problem";
+  readonly message: string;
+};
+
+export function LoginForm({
+  next,
+  notice = null,
+}: {
+  readonly next: string;
+  /**
+   * The verification link confirms an address and signs nobody in, so it lands
+   * here — and the form owes the person a reason for being shown.
+   */
+  readonly notice?: LoginNotice | null;
+}) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -41,6 +58,18 @@ export function LoginForm({ next }: { next: string }) {
           Retome de onde seus projetos pararam.
         </p>
       </header>
+
+      {notice ? (
+        <p
+          role="status"
+          className={cn(
+            "rounded-control border border-hairline bg-panel px-3 py-2 text-[13px]",
+            notice.tone === "problem" ? "text-danger" : "text-secondary",
+          )}
+        >
+          {notice.message}
+        </p>
+      ) : null}
 
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <Field label="E-mail">

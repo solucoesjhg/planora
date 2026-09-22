@@ -2,6 +2,7 @@ import { test, expect } from "./support/test";
 import {
   fillRegistration,
   registerAndVerify,
+  signIn,
   uniqueEmail,
   waitForInvitationLink,
   waitForVerificationLink,
@@ -97,7 +98,13 @@ test.describe("the workspace", () => {
     await fillRegistration(their, guest, { name: "Recém-chegada" });
     await their.goto(await waitForVerificationLink(request, guest));
 
-    // Verified, signed in, and back at the invitation — not on a dashboard.
+    // The link confirms the address and signs nobody in, so it lands on the
+    // login form — carrying the invitation it was on its way to, so that one
+    // sign-in continues the journey instead of ending it on a dashboard.
+    await expect(their).toHaveURL(/\/login\?verificado=1&next=%2Finvitations%2F/);
+    await expect(their.getByRole("status")).toContainText("E-mail confirmado");
+    await signIn(their, guest);
+
     await expect(their).toHaveURL(/\/invitations\//);
     await their.getByRole("button", { name: "Entrar no espaço" }).click();
     await expect(their).toHaveURL(/\/dashboard/);
