@@ -254,13 +254,25 @@ test.describe("the board on a phone", () => {
     context,
   }) => {
     const cdp = await context.newCDPSession(page);
-    const finger = async (x: number, y: number, dx: number, holdMs: number) => {
-      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    const finger = async (
+      from: { x: number; y: number },
+      to: { x: number; y: number },
+      holdMs: number,
+    ) => {
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [{ x: from.x, y: from.y }],
+      });
       await page.waitForTimeout(holdMs);
       for (let step = 1; step <= 12; step += 1) {
         await cdp.send("Input.dispatchTouchEvent", {
           type: "touchMove",
-          touchPoints: [{ x: x + (dx * step) / 12, y }],
+          touchPoints: [
+            {
+              x: from.x + ((to.x - from.x) * step) / 12,
+              y: from.y + ((to.y - from.y) * step) / 12,
+            },
+          ],
         });
         await page.waitForTimeout(16);
       }
@@ -277,17 +289,31 @@ test.describe("the board on a phone", () => {
     // A swipe, straight away: the strip moves, the card stays where it was.
     // Past half a column, because the strip snaps and a synthetic finger has
     // no flick for the snap to read; a real thumb's momentum carries it.
-    await finger(middle.x, middle.y, -280, 0);
+    await finger(middle, { x: middle.x - 280, y: middle.y }, 0);
     await expect.poll(() => strip.evaluate((element) => element.scrollLeft)).toBeGreaterThan(100);
     expect(await columnOf(page, "limpeza")).toBe("planning");
 
-    // A press that holds still first: the card comes along instead.
+    // A press that holds still first: the card comes along instead. Where to
+    // is the one question the phone answers differently — a column fills the
+    // strip, so the only other phase on screen is its tab, and the tabs are
+    // drop targets for exactly this. Sideways is not an option: the screen
+    // ends a finger's width past the card, and a drop with no target under it
+    // is not a drop. Straight up, at the card's own x, also keeps the gesture
+    // out of the strip's auto-scroll margins, which would otherwise slide the
+    // columns — and the tabs with them — mid-carry.
     await strip.evaluate((element) => {
       element.scrollLeft = 0;
     });
     const again = await card.boundingBox();
     if (!again) throw new Error("could not measure the card");
-    await finger(again.x + again.width / 2, again.y + 20, 320, 350);
-    await expect.poll(() => columnOf(page, "limpeza")).not.toBe("planning");
+    const tab = await page.locator('[data-tab-phase="execution"]').boundingBox();
+    if (!tab) throw new Error("could not measure the phase tab");
+
+    await finger(
+      { x: again.x + again.width / 2, y: again.y + 20 },
+      { x: tab.x + tab.width / 2, y: tab.y + tab.height / 2 },
+      350,
+    );
+    await expect.poll(() => columnOf(page, "limpeza")).toBe("execution");
   });
 });
