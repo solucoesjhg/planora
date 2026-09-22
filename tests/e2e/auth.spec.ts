@@ -3,6 +3,7 @@ import {
   PASSWORD as ACCOUNT_PASSWORD,
   messagesTo,
   registerAndVerify,
+  signIn,
   submitRegistration,
   uniqueEmail,
   waitForResetLink,
@@ -31,8 +32,14 @@ test("signing up leads to a verified account with a workspace", async ({
   const verificationUrl = await waitForVerificationLink(request, email);
   await page.goto(verificationUrl);
 
-  // Verification signs the person in, so the link lands where signed-in people
-  // go — not on the marketing page.
+  // The link confirms the address and signs nobody in: it is a GET that a mail
+  // scanner follows before the person does, and whichever arrived first would
+  // otherwise have taken the session. So it lands on the login form, and the
+  // form says why it is there.
+  await expect(page).toHaveURL(/\/login\?verificado=1$/);
+  await expect(page.getByRole("status")).toContainText("E-mail confirmado");
+
+  await signIn(page, email, PASSWORD);
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole("heading", { name: "Painel" })).toBeVisible();
 

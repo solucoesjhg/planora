@@ -160,6 +160,10 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    // Agent worktrees live here, each with a `.next/` of its own. Their build
+    // output is not source, and a lint run that reaches into one reports
+    // hundreds of errors in transpiled chunks that nobody wrote.
+    ".claude/**",
     "next-env.d.ts",
     "playwright-report/**",
     "test-results/**",

@@ -179,3 +179,29 @@ export const VERDICT_OPTIONS = (
  */
 export const RATE_LIMITED =
   "Você fez isso muitas vezes seguidas. Espere um minuto e tente de novo.";
+
+/**
+ * The verification link confirms an address and signs nobody in (ADR 0002's
+ * sibling decision, `src/server/auth/config.ts`). It lands on the login form,
+ * which owes the person an explanation for being there.
+ */
+export const VERIFIED_PARAM = "verificado";
+
+export const EMAIL_VERIFIED =
+  "E-mail confirmado. Entre com sua senha para continuar.";
+
+/**
+ * A link that did not work. Better Auth appends `error=<code>` to the callback
+ * rather than replacing it, so the same page has to be able to say the
+ * opposite of the line above — otherwise an expired link lands on a form
+ * cheerfully announcing that the address was confirmed.
+ */
+export const VERIFICATION_FAILED: Record<string, string> = {
+  TOKEN_EXPIRED: "Este link de confirmação expirou. Peça outro para continuar.",
+  INVALID_TOKEN: "Este link de confirmação não vale mais. Peça outro para continuar.",
+  USER_NOT_FOUND: "Não encontramos uma conta para este link.",
+  INVALID_USER: "Este link é de outra conta. Saia e abra o link de novo.",
+};
+
+export const VERIFICATION_FAILED_FALLBACK =
+  "Não deu para confirmar o e-mail com esse link. Peça outro para continuar.";

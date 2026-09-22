@@ -91,6 +91,117 @@ suite("signing up", () => {
     expect(sender.outbox[0]?.html).toContain("http");
   });
 
+  /**
+   * The verification link confirms an address and creates no session
+   * (`config.ts`). It is a GET that changes state, which is what a mail
+   * scanner or a prefetching client follows before the person does — and
+   * whichever arrived first used to be handed the account.
+   */
+  it("confirms the address and signs nobody in", async () => {
+    await auth.api.signUpEmail({
+      body: { name: "Ana", email: "ana@example.com", password },
+    });
+    const link = verificationLink();
+
+    const response = await auth.handler(new Request(link, { redirect: "manual" }));
+
+    const [user] = await connection.db
+      .select()
+      .from(users)
+      .where(eq(users.email, "ana@example.com"));
+    expect(user?.emailVerified).toBe(true);
+    expect(await connection.db.select().from(sessions)).toHaveLength(0);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("sends the link to the login form, which says the address is confirmed", async () => {
+    await auth.api.signUpEmail({
+      body: {
+        name: "Ana",
+        email: "ana@example.com",
+        password,
+        // What the register form sends for somebody arriving on their own.
+        callbackURL: "/dashboard",
+      },
+    });
+
+    const callback = new URL(verificationLink()).searchParams.get("callbackURL");
+
+    // No `next`: the login form already goes to the dashboard.
+    expect(callback).toBe("/login?verificado=1");
+  });
+
+  /**
+   * Sign-up may have been on its way to an invitation. That survives as
+   * `next`, so signing in continues the journey rather than dropping the
+   * person on the dashboard.
+   */
+  it("keeps where the sign-up was going", async () => {
+    await auth.api.signUpEmail({
+      body: {
+        name: "Ana",
+        email: "ana@example.com",
+        password,
+        callbackURL: "/invitations/abc",
+      },
+    });
+
+    const callback = new URL(verificationLink()).searchParams.get("callbackURL");
+
+    expect(callback).toBe("/login?verificado=1&next=%2Finvitations%2Fabc");
+  });
+
+  /**
+   * Better Auth appends its error to the callback rather than replacing it, so
+   * a link that failed arrives at the same login form that announces success.
+   * The form reads the error first; this pins the shape it reads.
+   */
+  it("carries the reason when the link did not work", async () => {
+    await auth.api.signUpEmail({
+      body: { name: "Ana", email: "ana@example.com", password, callbackURL: "/dashboard" },
+    });
+    const link = new URL(verificationLink());
+    link.searchParams.set("token", "not-a-token");
+
+    const response = await auth.handler(
+      new Request(link.toString(), { redirect: "manual" }),
+    );
+    const landed = new URL(response.headers.get("location") ?? "", "http://localhost:3000");
+
+    expect(landed.pathname).toBe("/login");
+    expect(landed.searchParams.get("error")).toBe("INVALID_TOKEN");
+    // And nobody was confirmed or signed in on the way.
+    const [user] = await connection.db
+      .select()
+      .from(users)
+      .where(eq(users.email, "ana@example.com"));
+    expect(user?.emailVerified).toBe(false);
+    expect(await connection.db.select().from(sessions)).toHaveLength(0);
+  });
+
+  /**
+   * Sign-up with no callback at all: Better Auth substitutes "/", which is the
+   * marketing page. Somebody who has just confirmed an address belongs on the
+   * dashboard, so the link carries no `next` rather than that one.
+   */
+  it("does not carry the marketing page as a destination", async () => {
+    await auth.api.signUpEmail({
+      body: { name: "Ana", email: "ana@example.com", password },
+    });
+
+    const callback = new URL(verificationLink()).searchParams.get("callbackURL");
+
+    expect(callback).toBe("/login?verificado=1");
+  });
+
+  /** The link out of the message the memory sender collected. */
+  function verificationLink(): string {
+    const message = sender.outbox.at(-1);
+    const link = (message?.text ?? "").match(/https?:\/\/\S*verify-email\S*/)?.[0];
+    if (!link) throw new Error("no verification link in the message");
+    return link.replaceAll("&amp;", "&");
+  }
+
   it("counts requests in the database and refuses the sixth signup in a minute", async () => {
     const attempt = (index: number) =>
       auth.handler(

@@ -19,6 +19,8 @@ import {
   verificationEmail,
 } from "@/server/email/templates";
 import { ensurePersonalWorkspace } from "@/server/modules/workspaces/repository";
+import { DEFAULT_DESTINATION, safeDestination } from "@/lib/nav";
+import { VERIFIED_PARAM } from "@/lib/strings";
 import {
   MIN_PASSWORD_LENGTH,
   PASSWORD_MESSAGES,
@@ -98,25 +100,36 @@ export function createAuth({
     },
     emailVerification: {
       sendOnSignUp: true,
-      // The link is a JWT that is not single-use: it works for as long as it is
-      // valid, and — while autoSignInAfterVerification stays on — clicking it
-      // signs the person in. Fifteen minutes rather than the default hour keeps
-      // that bearer window short.
+      // Fifteen minutes rather than the default hour. The link no longer
+      // carries a session, so this is an expiry and not a bearer window; it
+      // stays short because nothing in a hardening phase should widen.
       expiresIn: 900,
-      // TODO(review): decide whether the verification link should also sign the
-      // person in. Turning this off costs one extra step at signup and removes
-      // the "link in an inbox is a live credential" property entirely.
-      // See docs/STATUS.md, "Open decisions".
-      autoSignInAfterVerification: true,
+      /**
+       * The link confirms the address. It does not sign anybody in.
+       *
+       * It is a GET that changes state, which is exactly what a mail scanner,
+       * a security gateway or a prefetching client follows before the person
+       * does — and with this on, whichever of them arrived first got the
+       * session cookie. The person's own click then hit the already-verified
+       * branch, which returns before any session is created, and they landed
+       * on a page the proxy bounced straight back to the login form with
+       * nothing to explain it. So the convenience was not even reliable.
+       *
+       * This is the same shape the invitation flow was given in Phase 9, where
+       * accepting became a click rather than a page load, and for the same
+       * reason. The cost is one extra step at sign-up, once per account.
+       */
+      autoSignInAfterVerification: false,
       sendVerificationEmail: async ({ user, url }) => {
         await sender.send(
           verificationEmail({
             to: user.email,
             name: user.name,
-            // Better Auth defaults the callback to "/", which would land a
-            // freshly verified account on the marketing page. Verification
-            // signs them in, so it should land where signed-in people go.
-            url: withCallback(url, "/dashboard"),
+            // Better Auth defaults the callback to "/", the marketing page.
+            // Verification no longer signs anybody in, so the link lands on
+            // the login form, which says the address is confirmed and keeps
+            // whatever the sign-up was on its way to.
+            url: afterVerification(url),
           }),
         );
       },
@@ -251,18 +264,35 @@ export function getAuth(): Auth {
  * configure — fails loudly rather than signing sessions with a secret that is
  * published in this file.
  */
-/** Replaces the callback the framework put in the verification link. */
 /**
- * Better Auth defaults the callback to "/", the marketing page. Sign-up may
- * have asked for somewhere specific — the invitation the person was following
- * — and that wins; the dashboard is where everybody else lands.
+ * Where the verification link lands: the login form, saying so.
+ *
+ * Sign-up may have been on its way somewhere specific — the invitation the
+ * person was following — and that survives as `next`, so signing in continues
+ * the journey instead of dropping them on the dashboard. The proxy would send
+ * them to the same place anyway; arriving with the notice is the difference
+ * between "confirmed, now sign in" and a login form that appeared for no
+ * visible reason.
  */
-function withCallback(url: string, fallback: string): string {
+function afterVerification(url: string): string {
   const parsed = new URL(url);
   const asked = parsed.searchParams.get("callbackURL");
-  if (!asked || asked === "/" || !asked.startsWith("/")) {
-    parsed.searchParams.set("callbackURL", fallback);
+
+  const login = new URLSearchParams({ [VERIFIED_PARAM]: "1" });
+  // The register form always sends a callback, and for most people it is the
+  // dashboard — which is where the login form goes anyway. Only somewhere
+  // *else* is worth carrying, and carrying nothing keeps the link readable.
+  // `safeDestination` is what decides the value is a path here and not another
+  // host; the login page checks it again on the way out.
+  const destination = safeDestination(asked, DEFAULT_DESTINATION);
+  // "/" is what Better Auth substitutes when sign-up names no callback at all,
+  // and it is the marketing page — not somewhere to send a person who has just
+  // confirmed an address.
+  if (destination !== DEFAULT_DESTINATION && destination !== "/") {
+    login.set("next", destination);
   }
+
+  parsed.searchParams.set("callbackURL", `/login?${login.toString()}`);
   return parsed.toString();
 }
 

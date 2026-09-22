@@ -215,6 +215,31 @@ phase tab, which `PhaseTabs` already registers as a drop target for exactly
 this, at the card's own x so the strip's auto-scroll margins stay out of it.
 The test asserts the destination phase rather than merely "not planning", and
 passed five runs for five. **62 of 62.**
+**The verification link confirms, and signs nobody in (2026-09-22).** The last
+open decision, closed. It used to do both, so the message in the inbox was a
+live credential — and a GET that changes state is exactly what a mail scanner
+or a security gateway follows before the person does. Whichever arrived first
+took the session; the person's own click then hit Better Auth's
+already-verified branch, which returns before creating one, and they landed on
+a page the proxy bounced straight back to a login form with nothing to explain
+it. So the convenience was not even reliable. Now the link lands on `/login`
+saying the address is confirmed, carrying `next` when sign-up was on its way
+to an invitation, and a link that failed carries its reason instead — Better
+Auth appends `error=` to the callback rather than replacing it, so the same
+form had to be able to say the opposite of "confirmado". The cost is one extra
+step at sign-up, once per account. This is the shape the invitation flow was
+given for the same reason: accepting is a click, not a page load.
+
+**And the open redirect underneath it.** `/login?next=` and `/register?next=`
+had accepted anything starting with a slash since Phase 3, which is not the
+same as a path on this site: a browser reads `//evil.example` as another host.
+`safeDestination()` in `src/lib/nav.ts` resolves the value and compares
+origins, and then — this is the part an adversarial review caught in the first
+draft — checks the string it is about to return rather than the URL it parsed.
+`/..//evil.example` resolves to an internal origin, because the `..` is
+consumed on the way, and serialises to `//evil.example`, which the next
+consumer resolves off-site. A redirect arriving right after a real sign-in is
+the one a person trusts most.
 
 ## Next
 
@@ -226,26 +251,8 @@ passed five runs for five. **62 of 62.**
 
 ## Open decisions
 
-- **Should the verification link also sign the person in?** Still open, and
-  Phase 10 sharpened the facts rather than settling it, because it is a product
-  call. Today it does (`autoSignInAfterVerification: true` in
-  `src/server/auth/config.ts`). The link is a JWT signed with
-  `BETTER_AUTH_SECRET`, valid for 15 minutes and not stored — but the sign-in
-  fires only on the unverified→verified transition, so a replayed link is an
-  inert redirect and the exposure is the *first* click on a never-verified
-  account, not any click in the window. Two things widen it again:
-  `/send-verification-email` takes an address with no session and mails a fresh
-  15-minute link, so anyone who knows an unverified address can reopen the
-  window; and the link is a GET that mutates state and sets a cookie, which is
-  what a mail scanner follows — the same failure this project already fixed for
-  invitations by making acceptance a click. When a scanner clicks first, the
-  cookie lands in the scanner and the person reaches a login form with no
-  explanation, so the property is not even reliable. Turning it off is one line
-  plus a pt-BR notice on `/login`, and costs one extra step at signup; the E2E
-  helper `registerAndVerify` gains a sign-in and one assertion changes. Better
-  Auth 1.7.3 has no single-use or device-bound verification link, so there is no
-  third option short of the email-OTP plugin. **Decide before the product holds
-  anybody else's data.**
+None open. The verification link was the last one, and it was decided on
+2026-09-22 — the entry is under **Done**, above.
 
 ## Blocked / open
 

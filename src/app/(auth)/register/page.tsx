@@ -1,3 +1,4 @@
+import { safeDestination } from "@/lib/nav";
 import { RegisterForm } from "./register-form";
 
 // The server page reads searchParams and hands the destination down, the way
@@ -7,7 +8,7 @@ export default async function RegisterPage({
   searchParams,
 }: PageProps<"/register">) {
   const { next } = await searchParams;
-  const destination = typeof next === "string" && next.startsWith("/") ? next : "/dashboard";
+  const destination = safeDestination(next);
 
   return <RegisterForm next={destination} />;
 }

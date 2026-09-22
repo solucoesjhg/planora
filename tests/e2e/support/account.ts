@@ -47,6 +47,22 @@ export async function submitRegistration(
   await fillRegistration(page, email, { password });
 }
 
+/**
+ * Sign in at the form, wherever the page arrived at it.
+ *
+ * The verification link confirms the address and signs nobody in, so this is
+ * the step every suite that needs a session pays once.
+ */
+export async function signIn(
+  page: Page,
+  email: string,
+  password = PASSWORD,
+): Promise<void> {
+  await page.getByLabel("E-mail").fill(email);
+  await page.getByLabel("Senha").fill(password);
+  await page.getByRole("button", { name: "Entrar" }).click();
+}
+
 export async function registerAndVerify(
   page: Page,
   request: APIRequestContext,
@@ -54,6 +70,11 @@ export async function registerAndVerify(
 ): Promise<string> {
   await submitRegistration(page, email);
   await page.goto(await waitForVerificationLink(request, email));
+
+  // The link lands on the login form saying the address is confirmed; it does
+  // not carry a session, deliberately.
+  await signIn(page, email);
+  await page.waitForURL((url) => !url.pathname.startsWith("/login"));
   return email;
 }
 
