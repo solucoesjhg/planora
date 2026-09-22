@@ -190,17 +190,15 @@ from a dump and compares row counts, migrations and policy counts before it
 calls a backup real — it caught a stale hard-coded schema list on its first
 run, which is the argument for it existing.
 
+**The barrier is on in production (2026-09-22).** `planora_app` has its
+password, `APP_DATABASE_URL` points at it, and the deployment connects as the
+role that cannot bypass a policy — checked in `pg_stat_activity`. The policies
+that shipped inert with the phase now bite; clearing that one variable rolls it
+back. `SUPABASE_URL` reaches the build, so the Content-Security-Policy names
+the bucket's origin and attachment images are not refused.
+
 ## Next
 
-- **Turn the barrier on in production** (`docs/DEPLOY.md`, 7): give
-  `planora_app` a password in Supabase, set `APP_DATABASE_URL` in Vercel,
-  redeploy, and check that `pg_stat_activity` shows the restricted role. Until
-  then the policies ship and do not bite, which is how the phase was landed —
-  one variable turns it on, and the same one rolls it back.
-- Check that `SUPABASE_URL` is in Vercel's **build** environment, not only at
-  runtime: the Content-Security-Policy names the bucket's origin at build time,
-  and without it every attachment image is refused in production and nowhere
-  else.
 - Phase 11 · Launch readiness — a preview per pull request, error tracking, the
   performance budget, the accessibility pass, and E2E in CI (§7).
 - Watch the phone board in use. Directions B (a snapping carousel) and C (a
