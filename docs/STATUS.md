@@ -197,6 +197,25 @@ that shipped inert with the phase now bite; clearing that one variable rolls it
 back. `SUPABASE_URL` reaches the build, so the Content-Security-Policy names
 the bucket's origin and attachment images are not refused.
 
+**The phone's long press was never broken — its test dragged off the screen
+(2026-09-22).** `board.spec.ts` → "a swipe on a card scrolls, and a long press
+carries it" had failed since the day it was written (#20), on `main` as much as
+on any branch, which is why it looked like the touch simulation or Playwright.
+It is neither. The press works: the hold raises the drag overlay on schedule,
+and `TouchSensor`'s 250ms delay and the helper's 350ms agree. The carry was the
+problem. On a Pixel 7 one column fills the strip, so the card's centre sits at
+x=206 of a 412px screen, and the test pushed the finger 320px to the right —
+to x=526, 134px past the edge of the phone. `pointerWithin` finds no droppable
+out there, `over` is null, and the board correctly does nothing; dnd-kit's
+auto-scroll meanwhile ran the strip to its far end. A finger cannot leave a
+real screen, so nothing about it was reachable in use.
+
+The gesture now goes where the phone actually offers one: straight up onto the
+phase tab, which `PhaseTabs` already registers as a drop target for exactly
+this, at the card's own x so the strip's auto-scroll margins stay out of it.
+The test asserts the destination phase rather than merely "not planning", and
+passed five runs for five. **62 of 62.**
+
 ## Next
 
 - Phase 11 · Launch readiness — a preview per pull request, error tracking, the
@@ -229,14 +248,6 @@ the bucket's origin and attachment images are not refused.
   anybody else's data.**
 
 ## Blocked / open
-
-- **One E2E test fails on this machine, and failed before the phase.**
-  `board.spec.ts` → "a swipe on a card scrolls, and a long press carries it"
-  times out waiting for the card to change column. Checked out `main` at
-  `82cec93` and ran the same test: it fails there too, so it is the touch
-  gesture or the Playwright version, not Phase 10. Every other E2E test passes
-  (61 of 62). Worth its own look before Phase 11 puts the suite in CI.
-
 
 - **The Supabase CLI stack was not adopted.** Phase 7 took the fallback §9.1
   named instead: Docker Postgres plus a filesystem storage adapter behind
