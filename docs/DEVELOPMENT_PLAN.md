@@ -372,6 +372,8 @@ Postgres on Supabase, accessed through Drizzle over a direct connection. The sch
 
 Everybody edits and deletes their own comments. Deleting somebody else's is moderating the project it was said in, so it goes with *Manage projects*.
 
+Inviting grants a role, and nobody grants more than they hold: an owner or an admin may invite an admin, a manager, a member or a viewer, and no invitation ever grants *owner* — there is one per workspace, and a transfer, when there is one, is its own act. An invitation belongs to the address it was sent to, and the database does the joining itself (ADR 0003).
+
 Roles are workspace-wide in v1. Per-project grants — the scoped client access of §6.5 — need a `project_shares` table and are deliberately out of the MVP.
 
 ### 4.3 The columns that carry the domain

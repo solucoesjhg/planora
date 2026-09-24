@@ -1,6 +1,6 @@
 # 0002 — Row-level security: a transaction per access, four lanes, two roles
 
-**Date:** 2026-09-21 · **Status:** accepted
+**Date:** 2026-09-21 · **Status:** accepted · the invitation lane amended by ADR 0003
 
 ## Context
 

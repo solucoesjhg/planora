@@ -241,8 +241,37 @@ consumed on the way, and serialises to `//evil.example`, which the next
 consumer resolves off-site. A redirect arriving right after a real sign-in is
 the one a person trusts most.
 
+**Invitations work again, and belong to their address (2026-09-24).** The
+security audit (below) found that no invitation had been accepted since the
+barrier went on: the click marked the invitation accepted with an `UPDATE` the
+invitation's own `WITH CHECK` refused, and the whole join rolled back. Nothing
+noticed because the barrier's test wrote the membership by hand and every other
+suite, the E2E server included, connected as the owner. Reproduced end to end
+on `main` with the server connected as `planora_app`; green on the fix. The
+same audit found that an admin could invite someone as `owner` — the form never
+offered it, the Server Action accepted it — and that an invitation was a bearer
+link: the address it was sent to was stored and never read, and two accounts
+racing on one link both got in. ADR 0003 is the decision.
+`app.accept_invitation` (migration `0010`) now joins in one statement as the
+owner: a live invitation, sent to the presenting person's verified address,
+claimed under a row lock, joined with the role the invitation carries. The
+invitation lane only reads; no lane can write a membership into a workspace it
+is not already in. `grantableRoles()` beside `can()` says nobody grants above
+their own role and nobody grants ownership, and the members screen offers
+exactly that list. The E2E server now connects as `planora_app` whenever its
+database is on this machine — 62 of 62 pass that way — so a policy that
+refuses a real flow fails a test before it fails a person. `DEPLOY.md` §7.5 has
+the one query to run in production: whether an `owner` invitation was ever
+issued.
+
 ## Next
 
+- The rest of the security audit, in this order — each its own pull request:
+  the automations (fan-out and `notify` reaching non-members), the identity
+  tables' exposure through Supabase's Data API (run the query in the audit
+  section first), attachments, the pre-registered account, the ESLint
+  boundaries and `server-only`, then the barrier's per-command policies. The
+  list is below, under **What the security audit found**.
 - Phase 11 · Launch readiness — a preview per pull request, error tracking, the
   performance budget, the accessibility pass, and E2E in CI (§7).
 - Watch the phone board in use. Directions B (a snapping carousel) and C (a
@@ -270,6 +299,140 @@ None open. The verification link was the last one, and it was decided on
   `/dev/ui` renders hand-written examples rather than database rows.
 - CI warns that the `actions/*@v4` steps target Node 20, which GitHub has
   deprecated; the runner forces Node 24 and the jobs pass.
+
+## What the security audit found (2026-09-24)
+
+Five reviewers in parallel — authentication, authorization across every Server
+Action, the database barrier and raw SQL, files and rich content, and what
+reaches the browser — each finding reproduced against a local Postgres, as
+`planora_app` where the barrier was the question. Tenant isolation held
+everywhere it was attacked: every id a client sends is scoped by
+`workspace_id`, and the policies refused cross-workspace reads and writes on
+their own. The sanitizer, `safeDestination`, CSRF, cookies, headers and the
+client bundles held too; no secret is in git or in the browser. What did not:
+
+**Repaired** (ADR 0003): accepting an invitation failed in production; an admin
+could create owners; an invitation was not bound to its address, and could be
+redeemed twice at once; the invitation lane could write a membership with any
+role.
+
+**Open, most serious first:**
+
+- **Automations multiply without bound.** The ten-action cap is per rule, not
+  per event, and a workspace may have any number of rules; `create_subtask`
+  grows as B + B² + B³ to depth 3. One task can become a million, and the
+  outbox is one queue for every workspace. Any new account can do it.
+- **`notify → user` reaches anybody.** The recipient is not checked against
+  membership, the dispatcher writes on the system lane, and the email goes out
+  from Planora's domain. `notifications`, `task_assignees` and
+  `notification_preferences` are also not tied to membership in the database.
+- **The identity tables have RLS off.** `sessions`, `accounts`,
+  `verifications` and `rate_limits` rely on grants alone. On Supabase, tables
+  created in `public` usually carry default grants to `anon` and
+  `authenticated`, which would put session tokens and password hashes behind
+  the anon key through the Data API. Planora never publishes that key, so this
+  is latent — check it:
+  `select grantee, table_name, privilege_type from information_schema.role_table_grants where table_name in ('sessions','accounts','verifications','rate_limits') and grantee in ('anon','authenticated');`
+- **A pre-registered address can be taken.** Somebody signs up with another
+  person's address and a password of their own; when the owner of the address
+  later signs up, Better Auth answers "ok" and sends nothing, and "Reenviar"
+  sends a link that verifies the first account — the stranger's password.
+- **Attachments trust the declared type.** `confirmUpload` never compares what
+  landed with what was declared, the bucket has no type or size limit, and an
+  SVG is served inline from the storage origin. Unconfirmed uploads are never
+  cleaned up and are still served.
+- **The ESLint boundaries are not enforced.** The domain rule is overwritten by
+  the lane rule (flat config replaces a rule's options), so `domain/` may
+  import anything; the lane rule misses a relative import; nothing stops a
+  client component importing `server/` — and `board.tsx` ships the Drizzle
+  schema to the browser. `server-only` is missing from the modules holding
+  secrets.
+- **Barrier gaps the application does not reach today.** The `workspaces`
+  policy uses one expression for every command, so any member — a viewer —
+  may `DELETE` a workspace at the database level; `workspace_members` likewise
+  for one's own memberships. `outbox_events.dedupe_key` is unique across
+  tenants. `planora.user_id` is believed, not resolved.
+- Lower: formula injection in the CSV export; a deleted project still readable
+  and writable by id; any member may delete anyone's attachment; comments
+  signed by an automation editable by the rule's author; the account name
+  (unbounded) in email subjects; response timing on sign-up and reset;
+  third-party and SQL error text reaching the client; expired invitations
+  blocking an address forever, and no way to revoke one; `docker-compose`
+  publishing Postgres and Mailpit on every interface with the default
+  password; CI without a `permissions` block or pinned actions.
+
+Not security, found on the way: `/api/attachments` ignores the chosen
+workspace; deleting a workspace leaves its files in the bucket; a date like
+`2026-99-99` passes validation and becomes a 500.
+
+### What to verify by hand when the audit ends
+
+What no pull request can do: look at production, and at the settings that live
+in dashboards rather than in git. Each pull request of the audit ticks what it
+makes checkable; the rest waits for the end. Every query runs in the Supabase
+SQL Editor and was dry-run against a local database.
+
+**In the database — what may already have happened**
+
+- [ ] **Owner invitations** (repaired in #28). The query in `DEPLOY.md` §7.5.
+  Expected: no rows. A row with `accepted_at` set is a second owner who got in
+  before the barrier was on.
+- [ ] **Identity tables behind the Data API.** Expected: no rows. Any row
+  means session tokens and password hashes are one anon key away — enable RLS
+  on those four tables and revoke the grants before anything else.
+  `select grantee, table_name, privilege_type from information_schema.role_table_grants where table_name in ('sessions','accounts','verifications','rate_limits') and grantee in ('anon','authenticated');`
+- [ ] **Automations used to multiply.** Rules per workspace, the outbox's
+  backlog, and who created an unusual number of tasks this week:
+  `select workspace_id, count(*) as rules from automations group by 1 order by 2 desc limit 10;`
+  `select count(*) as waiting, min(occurred_at) as oldest from outbox_events where processed_at is null;`
+  `select workspace_id, count(*) as tasks_last_7_days from tasks where created_at > now() - interval '7 days' group by 1 order by 2 desc limit 10;`
+- [ ] **Notifications to people outside the workspace.** There is no way to
+  remove a member yet, so any row here is `notify → user` pointed at a stranger:
+  `select n.workspace_id, n.user_id, count(*) from notifications n left join workspace_members m on m.workspace_id = n.workspace_id and m.user_id = n.user_id where m.id is null group by 1, 2;`
+- [ ] **Accounts never verified** — the raw material of the pre-registered
+  address: `select count(*) as unverified, min(created_at) as oldest from users where email_verified = false;`
+- [ ] **Uploads never confirmed**, which nothing cleans up:
+  `select count(*) as pending, pg_size_pretty(coalesce(sum(size), 0)) as declared, min(created_at) as oldest from attachments where status = 'pending';`
+  The declared size is what the browser claimed; the bucket's own usage
+  (Storage in the dashboard) is what landed.
+- [ ] **Every audit migration applied**:
+  `select hash, created_at from drizzle.__drizzle_migrations order by created_at desc limit 3;`
+
+**In the dashboards**
+
+- [ ] Supabase → **Advisors → Security**: no "RLS disabled in public" left once
+  the identity tables are fixed.
+- [ ] Supabase → **Data API**: Planora never uses it. If `public` is among the
+  exposed schemas, take it out.
+- [ ] Supabase → **Storage → the bucket**: allowed MIME types set to the
+  attachment list and a 25 MB size limit (arrives with the attachments pull
+  request, `DEPLOY.md` §1.2).
+- [ ] Vercel → **Environment Variables**: `APP_DATABASE_URL` present in
+  Production; `CRON_SECRET` at least 32 characters; no production secret
+  scoped to Preview.
+- [ ] Vercel → **the latest build log**: installed with pnpm 12 through
+  corepack, so `allowBuilds` in `pnpm-workspace.yaml` is honoured.
+- [ ] Resend → **Logs**: no burst of "Automação: …" messages, no spike in
+  bounces or complaints; the sending domain still has SPF, DKIM and DMARC.
+- [ ] GitHub → **Settings → Actions → General**: workflow permissions
+  read-only by default.
+- [ ] GitHub → **Branches**: `main` protected — a pull request required, with
+  `verify` and `database` passing.
+
+**On the machines that run the drill**
+
+- [ ] `docker compose up -d` again once the compose file binds to 127.0.0.1,
+  so Postgres and Mailpit stop answering the network.
+- [ ] `planora_restore_drill` dropped and the dumps under `backups/` deleted
+  after each drill: they are a full copy of production, sessions included.
+
+**To close it**
+
+- [ ] In production, with a real second address: invite, accept, land on the
+  workspace; the same link opened by another account says it is for another
+  address.
+- [ ] One more audit pass over `main` once the last pull request is in, so the
+  list above ends empty rather than assumed.
 
 ## What the phase-by-phase review found
 

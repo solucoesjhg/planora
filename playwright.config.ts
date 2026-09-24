@@ -1,7 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
-import { databaseUrl } from "./tests/e2e/support/database";
+import { appDatabaseUrl, databaseUrl } from "./tests/e2e/support/database";
 
 const port = 3000;
+const appDatabase = appDatabaseUrl();
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -29,6 +30,9 @@ export default defineConfig({
     timeout: 300_000,
     env: {
       DATABASE_URL: databaseUrl(),
+      // The role production connects as, so the policies hold here as they
+      // hold there (ADR 0003). Only for a database on this machine.
+      ...(appDatabase ? { APP_DATABASE_URL: appDatabase } : {}),
       MAILPIT_URL: process.env.MAILPIT_URL ?? "http://127.0.0.1:8025",
       BETTER_AUTH_URL: `http://localhost:${port}`,
       // The gallery is the subject of the shell tests, and they run against a

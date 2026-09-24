@@ -54,6 +54,23 @@ export function can(context: TenantContext, action: Action): boolean {
   return PERMISSIONS[context.role].includes(action);
 }
 
+/** Highest first: the order §4.2.1's table reads in. */
+const RANK: readonly Role[] = ["owner", "admin", "manager", "member", "viewer"];
+
+/**
+ * The roles this person may hand out in an invitation (ADR 0003).
+ *
+ * Nobody grants a role above their own, and nobody grants ownership: there is
+ * one owner per workspace, and a transfer, when there is one, is its own act.
+ * So an owner or an admin may invite an admin, a manager, a member or a viewer,
+ * and whoever cannot manage members may invite nobody.
+ */
+export function grantableRoles(context: TenantContext): readonly Role[] {
+  if (!can(context, "manage-members")) return [];
+  const own = RANK.indexOf(context.role);
+  return RANK.filter((role, rank) => role !== "owner" && rank >= own);
+}
+
 /** Assembled by the seed and by tests; Phase 3 adds `requireWorkspace()`. */
 export function tenantContext(
   workspaceId: string,

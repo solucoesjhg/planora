@@ -71,6 +71,13 @@
       "when": 1789966348098,
       "tag": "0009_rls_policies",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790283655766,
+      "tag": "0010_invitation_acceptance",
+      "breakpoints": true
     }
   ]
 }

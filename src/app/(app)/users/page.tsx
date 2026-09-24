@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { ToastProvider } from "@/components/ui/toast";
 import { InviteForm } from "@/features/workspace/invite-form";
 import { requireSession, requireWorkspace } from "@/server/auth/dal";
-import { can } from "@/server/auth/tenant";
+import { grantableRoles } from "@/server/auth/tenant";
 import { withTenant } from "@/server/db/client";
 import { membersOf } from "@/server/modules/workspaces/repository";
 import { pendingInvitations } from "@/server/modules/workspaces/service";
@@ -25,7 +25,7 @@ export default async function UsersPage() {
     Promise.all([membersOf(tx, workspace), pendingInvitations(tx, workspace)]),
   );
 
-  const mayInvite = can(workspace, "manage-members");
+  const roles = grantableRoles(workspace);
 
   return (
     <ToastProvider>
@@ -34,8 +34,8 @@ export default async function UsersPage() {
         account={<AccountBar />}
       >
         <div className="flex max-w-3xl flex-col gap-6">
-          {mayInvite ? (
-            <InviteForm />
+          {roles.length > 0 ? (
+            <InviteForm roles={roles} />
           ) : (
             <p className="text-[13px] text-secondary">
               Seu papel neste espaço permite ver quem está aqui, não convidar.

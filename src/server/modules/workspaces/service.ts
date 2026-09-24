@@ -6,11 +6,18 @@
  * not because the MVP asks anybody to invite a team.
  */
 
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { newId } from "@/lib/id";
 import { isRefused, ok, refused, type Result } from "@/lib/result";
 import { hashToken, randomToken } from "@/lib/token";
-import { can, provenance, type Role, type TenantContext } from "@/server/auth/tenant";
-import type { Executor } from "@/server/db/client";
+import {
+  can,
+  grantableRoles,
+  provenance,
+  type Role,
+  type TenantContext,
+} from "@/server/auth/tenant";
+import { inInvitationScope, type Executor } from "@/server/db/client";
 import {
   users,
   workspaceInvitations,
@@ -23,7 +30,11 @@ import { emit } from "@/server/events/outbox";
 
 const INVITATION_DAYS = 7;
 
-export type PrepareFailure = "forbidden" | "already-member" | "already-invited";
+export type PrepareFailure =
+  | "forbidden"
+  | "forbidden-role"
+  | "already-member"
+  | "already-invited";
 
 export type InviteFailure = PrepareFailure | "undeliverable";
 
@@ -62,9 +73,14 @@ export async function prepareInvitation(
 ): Promise<Result<PreparedInvitation, PrepareFailure>> {
   if (!can(context, "manage-members")) return refused("forbidden", context.role);
 
+  // The Server Action is a public endpoint: what the form offers is not what
+  // arrives. Nobody grants above their own role, and nobody grants ownership
+  // (ADR 0003).
+  const role = input.role ?? "member";
+  if (!grantableRoles(context).includes(role)) return refused("forbidden-role", role);
+
   const email = input.email.trim().toLowerCase();
   const now = input.now ?? new Date();
-  const role = input.role ?? "member";
 
   const [existingMember] = await executor
     .select({ id: workspaceMembers.id })
@@ -221,7 +237,7 @@ export type InvitationPreview =
       readonly invitedByName: string;
       readonly role: Role;
     }
-  | { readonly status: "expired" | "used" | "invalid" };
+  | { readonly status: "expired" | "used" | "invalid" | "wrong-account" };
 
 /**
  * What the page shows before the person decides. Reading is not accepting: a
@@ -230,16 +246,23 @@ export type InvitationPreview =
  * The page it feeds arrives with a token and no session, so the executor it is
  * handed comes from `withInvitation`, the lane whose policy compares the same
  * hash this computes (ADR 0002).
+ *
+ * It answers the question the click will ask — is this invitation for the
+ * person looking at it — so that a wrong account is told so before it offers a
+ * button, not by the button failing (ADR 0003). The answer names neither
+ * address: whoever holds a forwarded link learns nothing from it.
  */
 export async function previewInvitation(
   executor: Executor,
   token: string,
+  viewer: { readonly email: string },
   now: Date = new Date(),
 ): Promise<InvitationPreview> {
   const tokenHash = await hashToken(token);
 
   const [row] = await executor
     .select({
+      email: workspaceInvitations.email,
       acceptedAt: workspaceInvitations.acceptedAt,
       expiresAt: workspaceInvitations.expiresAt,
       role: workspaceInvitations.role,
@@ -253,9 +276,14 @@ export async function previewInvitation(
     .where(eq(workspaceInvitations.tokenHash, tokenHash))
     .limit(1);
 
-  if (!row) return { status: "invalid" };
+  // An invitation that grants ownership is not one the database will honour.
+  if (!row || row.role === "owner") return { status: "invalid" };
   if (row.acceptedAt) return { status: "used" };
   if (row.expiresAt.getTime() <= now.getTime()) return { status: "expired" };
+  // The same comparison `app.accept_invitation` makes.
+  if (row.email.toLowerCase() !== viewer.email.trim().toLowerCase()) {
+    return { status: "wrong-account" };
+  }
 
   return {
     status: "open",
@@ -266,69 +294,65 @@ export async function previewInvitation(
   };
 }
 
-export type AcceptFailure = "invalid-token" | "expired" | "already-member";
+export type AcceptFailure =
+  | "invalid-token"
+  | "expired"
+  | "wrong-account"
+  | "already-member";
+
+const ACCEPT_FAILURES: ReadonlySet<string> = new Set<AcceptFailure>([
+  "invalid-token",
+  "expired",
+  "wrong-account",
+  "already-member",
+]);
 
 /**
- * Joining. It writes the membership every other policy resolves through, so
- * there is nothing yet for the tenant lane to check it against: the executor
- * has to come from the system lane, and the transaction below stays its own
- * (ADR 0002). Handed one, it becomes a savepoint inside it.
+ * Joining, which the database does (ADR 0003).
+ *
+ * It writes the membership every other policy resolves through, so there is no
+ * membership yet to check it against, and no lane the application holds may
+ * write one into a workspace it is not already in. `app.accept_invitation`
+ * decides and writes in one statement, as the owner: a live invitation, sent to
+ * the verified address of the person presenting it, claimed under a row lock so
+ * that it is spent once, and joined with the role the invitation carries — never
+ * one this call supplies.
+ *
+ * The token and the person travel as the invitation lane's settings. Handed a
+ * pool, this opens that lane on it; handed a transaction, it must already be
+ * `withInvitation` for this token and this person.
  */
 export async function acceptInvitation(
   executor: Executor,
-  input: { token: string; userId: string; now?: Date },
+  input: { token: string; userId: string },
 ): Promise<Result<{ workspaceId: string; role: Role }, AcceptFailure>> {
-  const now = input.now ?? new Date();
-
   const tokenHash = await hashToken(input.token);
 
-  return executor.transaction(async (tx) => {
-    const [invitation] = await tx
-      .select()
-      .from(workspaceInvitations)
-      .where(
-        and(
-          eq(workspaceInvitations.tokenHash, tokenHash),
-          isNull(workspaceInvitations.acceptedAt),
-        ),
-      )
-      .limit(1);
+  const [answer] = await inInvitationScope(
+    executor,
+    { tokenHash, userId: input.userId },
+    (tx) =>
+      tx.execute<{
+        outcome: string;
+        joined_workspace: string | null;
+        joined_as: string | null;
+      }>(
+        sql`select outcome, joined_workspace, joined_as from app.accept_invitation(${newId()})`,
+      ),
+  );
 
-    // The token is never echoed back: an error message is not a lookup service.
-    if (!invitation) return refused("invalid-token");
-    if (invitation.expiresAt.getTime() <= now.getTime()) {
-      return refused("expired", invitation.expiresAt.toISOString());
-    }
+  if (answer?.outcome === "joined" && answer.joined_workspace && answer.joined_as) {
+    return ok({ workspaceId: answer.joined_workspace, role: answer.joined_as as Role });
+  }
 
-    const [already] = await tx
-      .select({ id: workspaceMembers.id })
-      .from(workspaceMembers)
-      .where(
-        and(
-          eq(workspaceMembers.workspaceId, invitation.workspaceId),
-          eq(workspaceMembers.userId, input.userId),
-        ),
-      )
-      .limit(1);
-
-    if (already) return refused("already-member", invitation.workspaceId);
-
-    await tx.insert(workspaceMembers).values({
-      workspaceId: invitation.workspaceId,
-      userId: input.userId,
-      role: invitation.role,
-    });
-
-    await tx
-      .update(workspaceInvitations)
-      .set({ acceptedAt: now })
-      .where(eq(workspaceInvitations.id, invitation.id));
-
-    return ok({
-      workspaceId: invitation.workspaceId,
-      role: invitation.role as Role,
-    });
-  });
+  // The token is never echoed back: an error message is not a lookup service.
+  const outcome = answer?.outcome ?? "";
+  if (!ACCEPT_FAILURES.has(outcome)) {
+    throw new Error(`app.accept_invitation answered "${outcome}"`);
+  }
+  return outcome === "already-member" && answer?.joined_workspace
+    ? refused("already-member", answer.joined_workspace)
+    : refused(outcome as AcceptFailure);
 }
 
 /** Live invitations, for the members screen that arrives with Phase 5. */

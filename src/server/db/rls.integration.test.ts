@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { newId } from "@/lib/id";
+import { isRefused } from "@/lib/result";
 import { tenantContext } from "@/server/auth/tenant";
 import { hashToken } from "@/lib/token";
 import {
@@ -11,6 +12,7 @@ import {
   workspaces,
 } from "@/server/db/schema";
 import { seed, seedIds } from "@/server/db/seed";
+import { acceptInvitation } from "@/server/modules/workspaces/service";
 import {
   APP_ROLE,
   connectAndMigrate,
@@ -24,9 +26,11 @@ import { scopedTransaction, type Connection, type Database } from "./client";
  *
  * The phase's criterion is that the database refuses a cross-workspace read on
  * its own — so every test here connects as `planora_app`, the role that cannot
- * bypass a policy, and none of them goes through a service. The services and
- * their `where workspace_id = …` are the first barrier; what is under test is
- * the second one, with the first deliberately absent.
+ * bypass a policy, and almost none of them goes through a service. The services
+ * and their `where workspace_id = …` are the first barrier; what is under test
+ * is the second one, with the first deliberately absent. The exception is
+ * joining by invitation, which the database performs itself (ADR 0003): there
+ * the service is the only door, so it is the door the test walks through.
  *
  * The rest of the suite connects as the owner, which is a superuser and
  * therefore exempt from every policy including the `FORCE` ones. That is why
@@ -174,18 +178,22 @@ suite("row-level security, as the application role", () => {
    * session: a token's hash, and the person presenting it. The policies admit
    * it deliberately and narrowly — a live invitation, the workspace it names,
    * and the person who sent it — because the page has to say which workspace
-   * and from whom before anybody has joined anything.
+   * and from whom before anybody has joined anything. It reads; it writes
+   * nothing. Joining is `app.accept_invitation`, which decides and writes as the
+   * owner (ADR 0003).
    */
   describe("the invitation lane", () => {
     const token = "a-token-that-never-leaves-this-test";
     let hash: string;
+    const lane = () => ({ workspaceId: NO_WORKSPACE, userId: seedIds.user, tokenHash: hash });
 
     beforeEach(async () => {
       hash = await hashToken(token);
       await owner.db.insert(workspaceInvitations).values({
         id: newId(),
         workspaceId: OTHER_WORKSPACE,
-        email: "convidada@example.com",
+        // The seed's own person: the invitation is theirs to accept.
+        email: "henrique@planora.local",
         role: "member",
         tokenHash: hash,
         invitedBy: OTHER_USER,
@@ -221,35 +229,82 @@ suite("row-level security, as the application role", () => {
       expect(rows).toEqual([]);
     });
 
-    it("lets the person presenting it join, and nobody else", async () => {
-      await scopedTransaction(
+    /**
+     * The regression of 2026-09-22 → 24: with the barrier on, every acceptance
+     * failed on the invitation's own `WITH CHECK`, and no test noticed because
+     * none of them accepted anything as this role. This one goes through the
+     * service, on this role, the way the page does.
+     */
+    it("joins through the service, as the application role", async () => {
+      const accepted = await acceptInvitation(app.db, { token, userId: seedIds.user });
+
+      expect(isRefused(accepted) ? accepted.reason : accepted.value).toStrictEqual({
+        workspaceId: OTHER_WORKSPACE,
+        role: "member",
+      });
+
+      const [membership] = await owner.db
+        .select({ role: workspaceMembers.role })
+        .from(workspaceMembers)
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, OTHER_WORKSPACE),
+            eq(workspaceMembers.userId, seedIds.user),
+          ),
+        );
+      expect(membership?.role).toBe("member");
+
+      const [invitation] = await owner.db
+        .select({ acceptedAt: workspaceInvitations.acceptedAt })
+        .from(workspaceInvitations)
+        .where(eq(workspaceInvitations.tokenHash, hash));
+      expect(invitation?.acceptedAt).not.toBeNull();
+    });
+
+    it("refuses the person presenting it when it was sent to somebody else", async () => {
+      const [answer] = await scopedTransaction(
         app.db,
-        { workspaceId: NO_WORKSPACE, userId: seedIds.user, tokenHash: hash },
-        (tx) =>
+        // Somebody else's account, on my token.
+        { workspaceId: NO_WORKSPACE, userId: OTHER_USER, tokenHash: hash },
+        (tx) => tx.execute<{ outcome: string }>(sql`select outcome from app.accept_invitation(${newId()})`),
+      );
+
+      expect(answer?.outcome).toBe("wrong-account");
+    });
+
+    it("refuses a membership written by hand, whatever the role", async () => {
+      const refusal = await refusalOf(() =>
+        scopedTransaction(app.db, lane(), (tx) =>
           tx.insert(workspaceMembers).values({
             id: newId(),
             workspaceId: OTHER_WORKSPACE,
             userId: seedIds.user,
-            role: "member",
+            // What the invitation lane could once write for itself.
+            role: "owner",
           }),
-      );
-
-      const refusal = await refusalOf(() =>
-        scopedTransaction(
-          app.db,
-          { workspaceId: NO_WORKSPACE, userId: seedIds.user, tokenHash: hash },
-          (tx) =>
-            tx.insert(workspaceMembers).values({
-              id: newId(),
-              workspaceId: OTHER_WORKSPACE,
-              // Somebody else's account, on my token.
-              userId: OTHER_USER,
-              role: "owner",
-            }),
         ),
       );
 
       expect(refusal.code).toBe(ROW_LEVEL_SECURITY);
+    });
+
+    it("cannot rewrite or remove the invitation it presents", async () => {
+      const touched = await scopedTransaction(app.db, lane(), async (tx) => ({
+        updated: await tx
+          .update(workspaceInvitations)
+          .set({ role: "admin", expiresAt: new Date(Date.now() + 365 * 86_400_000) })
+          .returning({ id: workspaceInvitations.id }),
+        deleted: await tx
+          .delete(workspaceInvitations)
+          .returning({ id: workspaceInvitations.id }),
+      }));
+
+      expect(touched).toStrictEqual({ updated: [], deleted: [] });
+      const [row] = await owner.db
+        .select({ role: workspaceInvitations.role })
+        .from(workspaceInvitations)
+        .where(eq(workspaceInvitations.tokenHash, hash));
+      expect(row?.role).toBe("member");
     });
 
     it("buys nothing once the invitation has been accepted", async () => {
@@ -273,21 +328,14 @@ suite("row-level security, as the application role", () => {
         .set({ expiresAt: new Date(Date.now() - 1000) })
         .where(eq(workspaceInvitations.tokenHash, hash));
 
-      const refusal = await refusalOf(() =>
-        scopedTransaction(
-          app.db,
-          { workspaceId: NO_WORKSPACE, userId: seedIds.user, tokenHash: hash },
-          (tx) =>
-            tx.insert(workspaceMembers).values({
-              id: newId(),
-              workspaceId: OTHER_WORKSPACE,
-              userId: seedIds.user,
-              role: "member",
-            }),
-        ),
-      );
+      const accepted = await acceptInvitation(app.db, { token, userId: seedIds.user });
 
-      expect(refusal.code).toBe(ROW_LEVEL_SECURITY);
+      expect(isRefused(accepted) && accepted.reason).toBe("expired");
+      const memberships = await owner.db
+        .select({ id: workspaceMembers.id })
+        .from(workspaceMembers)
+        .where(eq(workspaceMembers.workspaceId, OTHER_WORKSPACE));
+      expect(memberships).toHaveLength(1);
     });
   });
 

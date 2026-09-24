@@ -156,6 +156,27 @@ export function withInvitation<T>(
 }
 
 /**
+ * `inScope` for the invitation lane: run inside the one we are already in, or
+ * open it on the pool we were handed.
+ *
+ * Handed a transaction, it trusts it to be `withInvitation` for this same token
+ * and person — the Server Action opens exactly that — just as `inScope` trusts a
+ * transaction to be the request's own tenant scope.
+ */
+export function inInvitationScope<T>(
+  executor: Executor,
+  invitation: { readonly tokenHash: string; readonly userId: string },
+  run: (tx: Transaction) => Promise<T>,
+): Promise<T> {
+  if (isTransaction(executor)) return run(executor);
+  return scopedTransaction(
+    executor,
+    { workspaceId: NO_WORKSPACE, userId: invitation.userId, tokenHash: invitation.tokenHash },
+    run,
+  );
+}
+
+/**
  * Run inside the scope we are already in, or open one.
  *
  * The services that already opened a transaction keep their atomicity and
