@@ -124,11 +124,14 @@ test.describe("the inbox", () => {
     );
     await written;
 
+    // Found by what it says, not by where it sits: the scheduler test in a
+    // parallel worker can tell this workspace about its overdue card after the
+    // rule has, and the newest notice is listed first.
     await expect(async () => {
       await page.goto("/inbox");
-      await expect(page.getByTestId("inbox-item").first()).toContainText("Automação: Me avise", {
-        timeout: 3000,
-      });
+      await expect(
+        page.getByTestId("inbox-item").filter({ hasText: "Automação: Me avise" }),
+      ).toBeVisible({ timeout: 3000 });
     }).toPass({ timeout: 20_000 });
     // The shell renders the account corner twice — rail and header — and only
     // one is visible at a time; either says the same number. The number is at

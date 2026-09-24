@@ -758,9 +758,16 @@ export const automationRuns = pgTable(
     workspaceId: uuid("workspace_id").notNull(),
     automationId: uuid("automation_id").notNull(),
     eventId: uuid("event_id").notNull(),
+    /**
+     * The act this run answers, however deep: the event a person or the clock
+     * caused, at the root of every rule that followed from it (ADR 0004).
+     */
+    chainId: uuid("chain_id").notNull(),
     status: text("status").notNull().default("succeeded"),
     /** Why a run was skipped, or what failed. */
     detail: text("detail"),
+    /** What the act could still pay for when the run was claimed. */
+    actionsGranted: integer("actions_granted").notNull().default(0),
     actionsRun: integer("actions_run").notNull().default(0),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
@@ -773,6 +780,7 @@ export const automationRuns = pgTable(
     }).onDelete("cascade"),
     uniqueIndex("automation_runs_event_automation_key").on(table.eventId, table.automationId),
     index("automation_runs_workspace_started_idx").on(table.workspaceId, table.startedAt),
+    index("automation_runs_chain_idx").on(table.chainId),
     check("automation_runs_status", inList("status", RUN_STATUSES)),
   ],
 );

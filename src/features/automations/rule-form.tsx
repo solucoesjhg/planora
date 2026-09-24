@@ -4,7 +4,8 @@ import { Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
-  MAX_ACTIONS_PER_EVENT,
+  MAX_ACTIONS_PER_RULE,
+  MAX_RULES_PER_WORKSPACE,
   type Action,
   type ActionType,
   type Condition,
@@ -47,15 +48,20 @@ export function RuleForm({ members }: { members: readonly Member[] }) {
     startTransition(async () => {
       const result = await createAutomationAction({ name, trigger, conditions, actions });
       if (!result.ok) {
-        toast.add({
-          title:
-            result.reason === "forbidden"
-              ? "Seu papel neste espaço não permite criar regras."
-              : result.reason === "rate-limited"
-                ? RATE_LIMITED
-                : "A regra não está completa.",
-          description: result.detail,
-        });
+        toast.add(
+          result.reason === "forbidden"
+            ? { title: "Seu papel neste espaço não permite criar regras." }
+            : result.reason === "rate-limited"
+              ? { title: RATE_LIMITED }
+              : result.reason === "not-a-member"
+                ? { title: "A regra cita alguém que não faz parte deste espaço." }
+                : result.reason === "too-many-rules"
+                  ? {
+                      title: `Este espaço já tem ${MAX_RULES_PER_WORKSPACE} regras, o máximo.`,
+                      description: "Apague uma que não use mais para criar outra.",
+                    }
+                  : { title: "A regra não está completa.", description: result.detail },
+        );
         return;
       }
       toast.add({ title: "Regra criada", description: name });
@@ -129,7 +135,7 @@ export function RuleForm({ members }: { members: readonly Member[] }) {
 
       <fieldset className="flex flex-col gap-2">
         <legend className="text-[11px] tracking-[0.12em] text-subtle uppercase">
-          Então · {actions.length} de {MAX_ACTIONS_PER_EVENT}
+          Então · {actions.length} de {MAX_ACTIONS_PER_RULE}
         </legend>
         {actions.map((action, index) => (
           <ActionRow
@@ -143,7 +149,7 @@ export function RuleForm({ members }: { members: readonly Member[] }) {
             }
           />
         ))}
-        {actions.length < MAX_ACTIONS_PER_EVENT ? (
+        {actions.length < MAX_ACTIONS_PER_RULE ? (
           <div>
             <Button
               type="button"

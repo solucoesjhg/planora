@@ -15,8 +15,12 @@
 
 import { and, eq, inArray } from "drizzle-orm";
 import {
+  MAX_ACTIONS_PER_ACT,
   MAX_CAUSATION_DEPTH,
+  MAX_RULES_PER_WORKSPACE,
   evaluateRule,
+  grantActions,
+  mayAddRule,
   validateRule,
   type Action,
   type Condition,
@@ -31,22 +35,35 @@ import { can, type TenantContext } from "@/server/auth/tenant";
 import type { Executor } from "@/server/db/client";
 import { boardColumns, outboxEvents, taskAssignees, tasks, workspaceMembers } from "@/server/db/schema";
 import { moveTask } from "@/server/modules/board/service";
-import { insertNotifications, preferencesOf } from "@/server/modules/notifications/repository";
+import {
+  insertNotifications,
+  membersAmong,
+  preferencesOf,
+} from "@/server/modules/notifications/repository";
 import { addComment, assignTask, createTask, updateTask } from "@/server/modules/tasks/service";
 import {
+  chainOf,
   claimRun,
+  countAutomations,
   deleteAutomation as deleteRow,
   findAutomation,
   finishRun,
   insertAutomation,
+  lockChain,
   rulesFor,
+  spentInChain,
   updateAutomation as updateRow,
   type AutomationView,
 } from "./repository";
 
 type EventRow = typeof outboxEvents.$inferSelect;
 
-export type AutomationFailure = "forbidden" | "not-found" | "invalid";
+export type AutomationFailure =
+  | "forbidden"
+  | "not-found"
+  | "invalid"
+  | "not-a-member"
+  | "too-many-rules";
 
 export type AutomationInput = {
   readonly name: string;
@@ -74,8 +91,34 @@ export async function createAutomation(
   const problems = validateRule(input);
   if (problems.length > 0) return refused("invalid", problems.join(", "));
 
+  if (!mayAddRule(await countAutomations(db, context))) {
+    return refused("too-many-rules", String(MAX_RULES_PER_WORKSPACE));
+  }
+  const stranger = await strangerNamedIn(db, context, input.actions);
+  if (stranger) return refused("not-a-member", stranger);
+
   const automationId = await insertAutomation(db, context, { ...input, name });
   return ok({ automationId });
+}
+
+/**
+ * The first person a rule names who is not in the workspace. `assign` would
+ * be refused when it ran; `notify` used to reach them, and email them
+ * (ADR 0004). Either way the rule is refused when it is written.
+ */
+async function strangerNamedIn(
+  db: Executor,
+  context: TenantContext,
+  actions: readonly Action[],
+): Promise<string | null> {
+  const named = actions.flatMap((action) =>
+    (action.type === "assign" || action.type === "notify") && action.userId
+      ? [action.userId]
+      : [],
+  );
+  if (named.length === 0) return null;
+  const members = new Set(await membersAmong(db, context.workspaceId, named));
+  return named.find((userId) => !members.has(userId)) ?? null;
 }
 
 export async function updateAutomation(
@@ -94,6 +137,13 @@ export async function updateAutomation(
   if (name.length === 0 || name.length > NAME_LIMIT) return refused("invalid", "name");
   const problems = validateRule(merged);
   if (problems.length > 0) return refused("invalid", problems.join(", "));
+
+  // Switching a rule off is always allowed, even one that names somebody who
+  // has since left; switching it on, or rewriting it, is a new promise.
+  if (values.actions !== undefined || values.enabled === true) {
+    const stranger = await strangerNamedIn(db, context, merged.actions);
+    if (stranger) return refused("not-a-member", stranger);
+  }
 
   await updateRow(db, context, automationId, { ...values, name });
   return ok({ automationId });
@@ -125,6 +175,11 @@ export type RunSummary = { readonly fired: number; readonly skipped: number };
  * workspace by design and therefore runs on the system lane (ADR 0002). The
  * services each action goes through take it as the `Executor` they already
  * accepted, so nothing below here opens a pool of its own.
+ *
+ * Each run is paid for by the act at the root of the event's chain, which has
+ * MAX_ACTIONS_PER_ACT to spend across every rule it sets off (ADR 0004). The
+ * allowance is reserved when the run is claimed, under a lock on that act, so
+ * a dispatcher running beside this one reads what this one reserved.
  */
 export async function runAutomationsFor(
   db: Executor,
@@ -136,6 +191,7 @@ export async function runAutomationsFor(
 
   const subject = await subjectFor(db, event);
   const today = calendarDateOf(now);
+  const chainId = await chainOf(db, event);
   let fired = 0;
   let skipped = 0;
 
@@ -147,7 +203,13 @@ export async function runAutomationsFor(
       // A guard that fired is worth a line in the log; a condition that simply
       // did not hold is not.
       if (verdict.reason === "loop") {
-        const runId = await claimRun(db, { workspaceId: event.workspaceId, automationId: rule.id, eventId: event.id });
+        const runId = await claimRun(db, {
+          workspaceId: event.workspaceId,
+          automationId: rule.id,
+          eventId: event.id,
+          chainId,
+          actionsGranted: 0,
+        });
         if (runId) {
           await finishRun(db, runId, {
             status: "skipped",
@@ -159,8 +221,27 @@ export async function runAutomationsFor(
       continue;
     }
 
-    const runId = await claimRun(db, { workspaceId: event.workspaceId, automationId: rule.id, eventId: event.id });
-    if (!runId) continue; // already ran, or running: a retry re-runs nothing
+    const claim = await db.transaction(async (tx) => {
+      await lockChain(tx, chainId);
+      const granted = grantActions(verdict.actions.length, await spentInChain(tx, chainId));
+      const runId = await claimRun(tx, {
+        workspaceId: event.workspaceId,
+        automationId: rule.id,
+        eventId: event.id,
+        chainId,
+        actionsGranted: granted,
+      });
+      return runId ? { runId, granted } : null;
+    });
+    if (!claim) continue; // already ran, or running: a retry re-runs nothing
+    const { runId, granted } = claim;
+
+    const allowance = `limite: esta cadeia de automações já fez as ${MAX_ACTIONS_PER_ACT} ações que um gesto pode causar`;
+    if (granted === 0) {
+      await finishRun(db, runId, { status: "skipped", detail: allowance, actionsRun: 0 }, now);
+      skipped += 1;
+      continue;
+    }
 
     const context: TenantContext = {
       workspaceId: event.workspaceId,
@@ -171,7 +252,7 @@ export async function runAutomationsFor(
 
     const failures: string[] = [];
     let actionsRun = 0;
-    for (const action of verdict.actions) {
+    for (const action of verdict.actions.slice(0, granted)) {
       try {
         await perform(db, context, rule, runId, action, subject, event);
         actionsRun += 1;
@@ -180,9 +261,13 @@ export async function runAutomationsFor(
       }
     }
 
+    const cut = granted < verdict.actions.length
+      ? [`${allowance}; ${granted} de ${verdict.actions.length} ações feitas`]
+      : [];
+    const notes = [...failures, ...cut];
     await finishRun(db, runId, {
       status: failures.length === 0 ? "succeeded" : "failed",
-      detail: failures.length === 0 ? null : failures.join(" · "),
+      detail: notes.length === 0 ? null : notes.join(" · "),
       actionsRun,
     }, now);
     fired += 1;
@@ -324,7 +409,7 @@ async function perform(
       return;
     }
     case "notify": {
-      const recipients =
+      const named =
         action.to === "user"
           ? action.userId
             ? [action.userId]
@@ -342,6 +427,9 @@ async function perform(
                     ),
                   )
               ).map((row) => row.userId);
+      // Only members are told, whoever the rule names — a rule written before
+      // that was checked, or naming somebody who has since left (ADR 0004).
+      const recipients = await membersAmong(db, context.workspaceId, named);
       if (recipients.length === 0) throw new Error("ninguém para avisar");
 
       const preferences = await preferencesOf(db, context.workspaceId, recipients);

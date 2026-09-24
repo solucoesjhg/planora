@@ -7,11 +7,14 @@
  * service that runs actions, records runs and keeps the log lives in
  * `server/modules/automations`.
  *
- * Two guards keep automation from becoming noise (§9): a rule fires at most
- * MAX_ACTIONS_PER_EVENT actions for one event, and an event that is itself
- * the consequence of an automation carries its causal depth — past
- * MAX_CAUSATION_DEPTH nothing fires, so a rule that triggers a rule cannot
- * run away.
+ * Three guards keep automation from becoming noise (§9, ADR 0004). A rule
+ * holds at most MAX_ACTIONS_PER_RULE actions. An event that is itself the
+ * consequence of an automation carries its causal depth, and past
+ * MAX_CAUSATION_DEPTH nothing fires. And one act — a person's, or the clock's
+ * — buys at most MAX_ACTIONS_PER_ACT automated actions in total, across every
+ * rule that answers it and every rule those answers set off: the first two
+ * guards bound one rule and one chain's length, and only the third bounds the
+ * product of how many rules there are and how far they reach.
  */
 
 import type { Verdict } from "./health";
@@ -105,10 +108,29 @@ export type RuleEvent = {
   readonly depth: number;
 };
 
-export const MAX_ACTIONS_PER_EVENT = 10;
+export const MAX_ACTIONS_PER_RULE = 10;
 export const MAX_CAUSATION_DEPTH = 3;
+export const MAX_ACTIONS_PER_ACT = 10;
+export const MAX_RULES_PER_WORKSPACE = 50;
 
 export type SkipReason = "disabled" | "trigger" | "loop" | "condition";
+
+/**
+ * How many of the actions a rule wants the act can still pay for.
+ *
+ * `spent` is what every earlier run caused by the same act was granted. Rules
+ * are served in the order they answer, so the earliest rules of a busy
+ * workspace run whole and the latest run short or not at all — and the log
+ * says which.
+ */
+export function grantActions(wanted: number, spent: number): number {
+  return Math.max(0, Math.min(wanted, MAX_ACTIONS_PER_ACT - spent));
+}
+
+/** Whether a workspace holding `count` rules may write another. */
+export function mayAddRule(count: number): boolean {
+  return count < MAX_RULES_PER_WORKSPACE;
+}
 
 export type Verdict9 =
   | { readonly kind: "fire"; readonly actions: readonly Action[] }
@@ -133,7 +155,7 @@ export function evaluateRule(
     }
   }
 
-  return { kind: "fire", actions: rule.actions.slice(0, MAX_ACTIONS_PER_EVENT) };
+  return { kind: "fire", actions: rule.actions.slice(0, MAX_ACTIONS_PER_RULE) };
 }
 
 /** True when the condition holds; false when it does not or cannot be told. */
@@ -187,7 +209,7 @@ export function validateRule(rule: Rule): RuleProblem[] {
   const problems: RuleProblem[] = [];
   if (!TRIGGERS.includes(rule.trigger)) problems.push("unknown-trigger");
   if (rule.actions.length === 0) problems.push("no-actions");
-  if (rule.actions.length > MAX_ACTIONS_PER_EVENT) problems.push("too-many-actions");
+  if (rule.actions.length > MAX_ACTIONS_PER_RULE) problems.push("too-many-actions");
 
   for (const action of rule.actions) {
     if (!ACTION_TYPES.includes(action.type)) {
