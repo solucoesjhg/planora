@@ -12,6 +12,8 @@ import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { createDatabase, type Connection } from "@/server/db/client";
 import {
+  APP_ROLE,
+  LOCAL_APP_PASSWORD,
   databaseNameOf,
   resolveTestDatabase,
   withCredentials,
@@ -56,6 +58,8 @@ export function connect(pool = 1): Connection {
   return createDatabase(databaseUrl, pool);
 }
 
+export { APP_ROLE };
+
 /**
  * The same database, connected as `planora_app` — the role that cannot bypass
  * row-level security (ADR 0002).
@@ -69,14 +73,11 @@ export function connect(pool = 1): Connection {
  * in git. Here it gets a throwaway one, set by the owner, so the test can
  * present it.
  */
-export const APP_ROLE = "planora_app";
-const APP_PASSWORD = "planora_app_test_only";
-
 export async function connectAsApp(pool = 1): Promise<Connection> {
   const owner = connect(1);
   try {
     await owner.db.execute(
-      sql.raw(`alter role ${APP_ROLE} with login password '${APP_PASSWORD}'`),
+      sql.raw(`alter role ${APP_ROLE} with login password '${LOCAL_APP_PASSWORD}'`),
     );
     await owner.db.execute(
       sql.raw(`grant connect on database "${databaseNameOf(databaseUrl)}" to ${APP_ROLE}`),
@@ -85,5 +86,5 @@ export async function connectAsApp(pool = 1): Promise<Connection> {
     await owner.close();
   }
 
-  return createDatabase(withCredentials(databaseUrl, APP_ROLE, APP_PASSWORD), pool);
+  return createDatabase(withCredentials(databaseUrl, APP_ROLE, LOCAL_APP_PASSWORD), pool);
 }

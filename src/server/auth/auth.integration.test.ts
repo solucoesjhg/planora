@@ -1,4 +1,4 @@
-import { tenantContext } from "@/server/auth/tenant";
+import { tenantContext, type Role } from "@/server/auth/tenant";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { isRefused } from "@/lib/result";
@@ -25,8 +25,9 @@ import {
 import {
   acceptInvitation,
   inviteMember,
+  previewInvitation,
 } from "@/server/modules/workspaces/service";
-import { connectAndMigrate, hasDatabase } from "@/server/test-support/database";
+import { connect, connectAndMigrate, hasDatabase } from "@/server/test-support/database";
 
 const suite = describe.skipIf(!hasDatabase);
 
@@ -435,12 +436,28 @@ suite("invitations", () => {
     });
     await auth.api.signUpEmail({ body: { name, email, password } });
 
+    // What the verification link does. Nobody signs in unverified, so every
+    // account that can reach an invitation has been through it — and an
+    // invitation belongs to a verified address (ADR 0003).
     const [user] = await connection.db
-      .select()
-      .from(users)
-      .where(eq(users.email, email));
+      .update(users)
+      .set({ emailVerified: true })
+      .where(eq(users.email, email))
+      .returning();
     const memberships = await membershipsOf(connection.db, user!.id);
     return { userId: user!.id, workspaceId: memberships[0]!.workspaceId };
+  }
+
+  function invite(
+    host: { workspaceId: string; userId: string },
+    role: Role,
+    input: { email: string; role?: Role; now?: Date },
+  ) {
+    return inviteMember(connection.db, tenantContext(host.workspaceId, host.userId, role), {
+      baseUrl: "http://localhost:3000",
+      sender: memorySender(),
+      ...input,
+    });
   }
 
   it("leaves no invitation behind when the message cannot be delivered", async () => {
@@ -576,6 +593,130 @@ suite("invitations", () => {
 
     expect(isRefused(expired) && expired.reason).toBe("expired");
     expect(isRefused(unknown) && unknown.reason).toBe("invalid-token");
+  });
+
+  /**
+   * The audit of 2026-09-24 (ADR 0003): the form never offered `owner`, and the
+   * Server Action behind it accepted it anyway — an admin could invite a second
+   * account of their own as owner and delete the workspace from there.
+   */
+  it("lets nobody grant ownership, or a role above their own", async () => {
+    const owner = await register("Henrique", "h@example.com");
+
+    const asOwner = await invite(owner, "owner", { email: "o@example.com", role: "owner" });
+    const asAdmin = await invite(owner, "admin", { email: "o@example.com", role: "owner" });
+    const byManager = await invite(owner, "manager", { email: "m@example.com", role: "viewer" });
+
+    expect(isRefused(asOwner) && asOwner.reason).toBe("forbidden-role");
+    expect(isRefused(asAdmin) && asAdmin.reason).toBe("forbidden-role");
+    expect(isRefused(byManager) && byManager.reason).toBe("forbidden");
+    expect(await connection.db.select().from(workspaceInvitations)).toHaveLength(0);
+
+    // An admin may hand on what an admin holds.
+    const adminByAdmin = await invite(owner, "admin", { email: "a@example.com", role: "admin" });
+    expect(isRefused(adminByAdmin)).toBe(false);
+  });
+
+  it("will not redeem an owner invitation written before the rule", async () => {
+    const owner = await register("Henrique", "h@example.com");
+    const guest = await register("Ana", "a@example.com");
+    const token = "um-convite-de-dono-antigo";
+
+    await connection.db.insert(workspaceInvitations).values({
+      workspaceId: owner.workspaceId,
+      email: "a@example.com",
+      role: "owner",
+      tokenHash: await hashToken(token),
+      invitedBy: owner.userId,
+      expiresAt: new Date(Date.now() + 86_400_000),
+    });
+
+    const preview = await previewInvitation(connection.db, token, { email: "a@example.com" });
+    const accepted = await acceptInvitation(connection.db, { token, userId: guest.userId });
+
+    expect(preview.status).toBe("invalid");
+    expect(isRefused(accepted) && accepted.reason).toBe("invalid-token");
+    expect(await membershipsOf(connection.db, guest.userId)).toHaveLength(1);
+  });
+
+  it("joins only the account the invitation was sent to", async () => {
+    const owner = await register("Henrique", "h@example.com");
+    const guest = await register("Ana", "a@example.com");
+    const stranger = await register("Outra", "outra@example.com");
+
+    const invited = await invite(owner, "owner", { email: "A@Example.com", role: "manager" });
+    if (isRefused(invited)) throw new Error("expected an invitation");
+    const { token } = invited.value;
+
+    // Asked before the click, so the wrong account never sees a button.
+    const theirs = await previewInvitation(connection.db, token, { email: "outra@example.com" });
+    const hers = await previewInvitation(connection.db, token, { email: "a@example.com" });
+    expect(theirs.status).toBe("wrong-account");
+    expect(hers.status).toBe("open");
+
+    // A forwarded link is not a key.
+    const forwarded = await acceptInvitation(connection.db, { token, userId: stranger.userId });
+    expect(isRefused(forwarded) && forwarded.reason).toBe("wrong-account");
+    expect(await membershipsOf(connection.db, stranger.userId)).toHaveLength(1);
+
+    // And it did not spend the invitation on the way.
+    const accepted = await acceptInvitation(connection.db, { token, userId: guest.userId });
+    expect(isRefused(accepted) ? accepted.reason : accepted.value).toStrictEqual({
+      workspaceId: owner.workspaceId,
+      role: "manager",
+    });
+  });
+
+  it("refuses the invited address while it is still unverified", async () => {
+    const owner = await register("Henrique", "h@example.com");
+    const guest = await register("Ana", "a@example.com");
+    await connection.db
+      .update(users)
+      .set({ emailVerified: false })
+      .where(eq(users.id, guest.userId));
+
+    const invited = await invite(owner, "owner", { email: "a@example.com" });
+    if (isRefused(invited)) throw new Error("expected an invitation");
+
+    const accepted = await acceptInvitation(connection.db, {
+      token: invited.value.token,
+      userId: guest.userId,
+    });
+    expect(isRefused(accepted) && accepted.reason).toBe("wrong-account");
+  });
+
+  /**
+   * Two clicks at once, on connections that are genuinely separate: the read and
+   * the write used to be two statements with nothing between them, and both
+   * got in. The row lock makes the second wait, and find the invitation spent.
+   */
+  it("spends an invitation once when two acceptances race", async () => {
+    const owner = await register("Henrique", "h@example.com");
+    const guest = await register("Ana", "a@example.com");
+
+    const invited = await invite(owner, "owner", { email: "a@example.com" });
+    if (isRefused(invited)) throw new Error("expected an invitation");
+
+    const first = connect();
+    const second = connect();
+    try {
+      const results = await Promise.all(
+        [first, second].map((side) =>
+          acceptInvitation(side.db, { token: invited.value.token, userId: guest.userId }),
+        ),
+      );
+
+      const reasons = results.map((result) => (isRefused(result) ? result.reason : "joined"));
+      expect(reasons.sort()).toStrictEqual(["invalid-token", "joined"]);
+    } finally {
+      await Promise.all([first.close(), second.close()]);
+    }
+
+    const members = await connection.db
+      .select()
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.workspaceId, owner.workspaceId));
+    expect(members).toHaveLength(2);
   });
 });
 

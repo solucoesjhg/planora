@@ -14,6 +14,8 @@ const MESSAGES: Record<string, string> = {
   used: "Este convite já foi usado.",
   expired: "Este convite expirou. Peça um novo a quem convidou você.",
   "already-member": "Você já faz parte deste espaço de trabalho.",
+  "wrong-account":
+    "Este convite foi enviado para outro endereço de e-mail. Entre com a conta desse endereço para aceitá-lo.",
 };
 
 /**
@@ -39,9 +41,11 @@ export default async function InvitationPage({
 
   // The token is the only thing this page has, so it is also what opens the
   // scope: the policy compares the same SHA-256 the row was stored under, and
-  // the lane sees that one invitation and nothing else (ADR 0002).
+  // the lane sees that one invitation and nothing else (ADR 0002). An
+  // invitation belongs to the address it was sent to, so the page asks the
+  // question the click will (ADR 0003).
   const preview = await withInvitation(await hashToken(token), session.userId, (tx) =>
-    previewInvitation(tx, token),
+    previewInvitation(tx, token, { email: session.email }),
   );
   const problem =
     typeof refused === "string"

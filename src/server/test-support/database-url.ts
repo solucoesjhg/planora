@@ -47,6 +47,21 @@ export function withDatabaseName(url: string, name: string): string {
   return parsed.toString();
 }
 
+/**
+ * The role the application connects as in production (ADR 0002), and the
+ * throwaway password the local suites give it. The migrations create the role
+ * without one, because a migration lives in git; this one lives in git too,
+ * which is why nothing sets it on a database that is not on this machine.
+ */
+export const APP_ROLE = "planora_app";
+export const LOCAL_APP_PASSWORD = "planora_app_test_only";
+
+/** Whether a connection string names this machine. */
+export function isLocal(url: string): boolean {
+  const parsed = parse(url);
+  return parsed !== null && LOCAL_HOSTS.has(parsed.hostname);
+}
+
 /** The same database, reached as somebody else: the barrier's own test needs it. */
 export function withCredentials(url: string, user: string, password: string): string {
   const parsed = parse(url);
@@ -77,7 +92,7 @@ export function describeDatabase(url: string): string {
 function whyRefused(url: string): string | null {
   const parsed = parse(url);
   if (!parsed) return "is not a URL this harness can read";
-  if (!LOCAL_HOSTS.has(parsed.hostname)) {
+  if (!isLocal(url)) {
     return `names ${parsed.hostname}, which is not this machine; the suite truncates every table before each test`;
   }
   const name = databaseNameOf(url);

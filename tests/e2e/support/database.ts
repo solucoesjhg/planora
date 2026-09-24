@@ -1,4 +1,10 @@
 import postgres from "postgres";
+import {
+  APP_ROLE,
+  LOCAL_APP_PASSWORD,
+  isLocal,
+  withCredentials,
+} from "@/server/test-support/database-url";
 
 /**
  * The database the suite runs against when nothing says otherwise — the same
@@ -10,6 +16,21 @@ export const DEFAULT_DATABASE_URL =
 
 export function databaseUrl(): string {
   return process.env["DATABASE_URL"] ?? DEFAULT_DATABASE_URL;
+}
+
+/**
+ * The same database as `planora_app`, which is what the server under test
+ * connects as — the role production uses, subject to every policy (ADR 0002).
+ * With the owner instead, the barrier is inert, and a policy that refuses a
+ * real flow passes every test: accepting an invitation failed in production for
+ * two days that way (ADR 0003).
+ *
+ * Only on this machine, because the password is in git. Against anything else
+ * the answer is null and the server connects as whatever `DATABASE_URL` says.
+ */
+export function appDatabaseUrl(): string | null {
+  const url = databaseUrl();
+  return isLocal(url) ? withCredentials(url, APP_ROLE, LOCAL_APP_PASSWORD) : null;
 }
 
 /**

@@ -20,6 +20,7 @@ const ROLE_OPTIONS: { value: Role; label: string }[] = [
 const REFUSALS: Record<string, string> = {
   "rate-limited": RATE_LIMITED,
   forbidden: "Seu papel neste espaço não permite convidar.",
+  "forbidden-role": "Seu papel neste espaço não permite dar esse papel.",
   "already-member": "Essa pessoa já está no espaço de trabalho.",
   "already-invited": "Já existe um convite em aberto para esse e-mail.",
   undeliverable:
@@ -29,9 +30,14 @@ const REFUSALS: Record<string, string> = {
 /**
  * The screen the invitation flow never had. `inviteMember` and its tests have
  * existed since Phase 3; without this, nothing could call them.
+ *
+ * The roles it offers are the ones the server says this person may grant
+ * (`grantableRoles`, ADR 0003) — the same rule the service enforces, computed
+ * once, on the server.
  */
-export function InviteForm() {
+export function InviteForm({ roles }: { roles: readonly Role[] }) {
   const toast = useToast();
+  const options = ROLE_OPTIONS.filter((option) => roles.includes(option.value));
   const [role, setRole] = useState<Role>("member");
   const [pending, startTransition] = useTransition();
 
@@ -78,7 +84,7 @@ export function InviteForm() {
         {(id) => (
           <Select
             id={id}
-            items={ROLE_OPTIONS}
+            items={options}
             value={role}
             onValueChange={(value) => setRole(value as Role)}
           />

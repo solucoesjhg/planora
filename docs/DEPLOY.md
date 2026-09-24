@@ -494,6 +494,33 @@ Clear `APP_DATABASE_URL` and redeploy. Every request still opens its scope
 and applies its settings; the owner simply bypasses the policies. Nothing else
 changes, and no migration is reversed.
 
+### 7.5 Invitations, and one question to ask production once
+
+From 2026-09-22, when the barrier went on, until migration
+`0010_invitation_acceptance.sql` shipped, no invitation could be accepted:
+the click failed on the invitation's own policy (ADR 0003). The migration moves
+joining into `app.accept_invitation`, which also binds an invitation to the
+address it was sent to and refuses one that grants ownership. Nothing needs
+doing for it to work — it ships with the deployment like any migration.
+
+The audit that found it also found that an admin could have issued an invitation
+with the role `owner` by calling the Server Action directly. Such an invitation
+can no longer be redeemed, and the migration deliberately does not delete it, so
+that whether one was ever issued can still be asked. In the SQL Editor:
+
+```sql
+select i.id, w.name as workspace, i.email, u.email as invited_by, i.created_at, i.accepted_at
+from workspace_invitations i
+join workspaces w on w.id = i.workspace_id
+join users u on u.id = i.invited_by
+where i.role = 'owner';
+```
+
+No rows is the expected answer. A row with `accepted_at` set means somebody
+joined a workspace as a second owner before the barrier was on; look at
+`workspace_members` for that workspace before deciding what to do. Rows without
+it are inert and can be deleted.
+
 ### What a restore does not bring back
 
 Worth repeating here because it belongs to both sections: `CREATE ROLE` is

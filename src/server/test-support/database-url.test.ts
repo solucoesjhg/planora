@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveTestDatabase, withDatabaseName } from "./database-url";
+import { isLocal, resolveTestDatabase, withDatabaseName } from "./database-url";
 
 const dev = "postgresql://postgres:postgres@127.0.0.1:54322/planora_dev";
 
@@ -50,5 +50,23 @@ describe("the integration suite's database", () => {
 
   it("refuses what it cannot read", () => {
     expect(resolveTestDatabase({ DATABASE_URL: "not a url" }).kind).toBe("refused");
+  });
+});
+
+/**
+ * The E2E server connects as `planora_app` with a password that is in git, so
+ * the suite sets that password only where this says yes (ADR 0003).
+ */
+describe("a database on this machine", () => {
+  it("is one the local suites may give the application role a password on", () => {
+    expect(isLocal(dev)).toBe(true);
+    expect(isLocal("postgresql://postgres:postgres@localhost:5432/planora_dev")).toBe(true);
+  });
+
+  it("is never a remote one, nor anything unreadable", () => {
+    expect(
+      isLocal("postgresql://postgres.abc:secret@aws-0-sa-east-1.pooler.supabase.com:6543/postgres"),
+    ).toBe(false);
+    expect(isLocal("not a url")).toBe(false);
   });
 });
