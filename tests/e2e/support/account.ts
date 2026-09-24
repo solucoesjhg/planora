@@ -50,8 +50,9 @@ export async function submitRegistration(
 /**
  * Sign in at the form, wherever the page arrived at it.
  *
- * The verification link confirms the address and signs nobody in, so this is
- * the step every suite that needs a session pays once.
+ * The verification link confirms nothing on its own, so this is the step every
+ * suite that needs a session pays once: with the link, it is also the step that
+ * confirms the address.
  */
 export async function signIn(
   page: Page,
@@ -71,8 +72,8 @@ export async function registerAndVerify(
   await submitRegistration(page, email);
   await page.goto(await waitForVerificationLink(request, email));
 
-  // The link lands on the login form saying the address is confirmed; it does
-  // not carry a session, deliberately.
+  // The link lands on the login form, and signing in there with the password
+  // chosen at sign-up is what confirms the address (ADR 0007).
   await signIn(page, email);
   await page.waitForURL((url) => !url.pathname.startsWith("/login"));
   return email;
@@ -86,7 +87,7 @@ export async function waitForVerificationLink(
   request: APIRequestContext,
   email: string,
 ): Promise<string> {
-  return waitForLink(request, email, /https?:\/\/[^\s"<>]+verify-email[^\s"<>]*/);
+  return waitForLink(request, email, /https?:\/\/[^\s"<>]+\/login\?confirmar=[^\s"<>]*/);
 }
 
 /** The password-reset link, from the same local inbox. */

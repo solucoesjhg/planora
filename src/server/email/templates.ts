@@ -22,9 +22,11 @@ export function verificationEmail({
   url,
 }: VerificationEmail): EmailMessage {
   const subject = `Confirme seu e-mail no ${PRODUCT}`;
+  // The link leads to the login form, and signing in there with the password
+  // chosen at sign-up is what confirms the address (ADR 0007).
   const body = [
     `Olá, ${name}.`,
-    `Confirme seu endereço para ativar sua conta no ${PRODUCT}.`,
+    `Para ativar sua conta no ${PRODUCT}, abra o link e entre com a senha que você escolheu no cadastro. Ele vale por 15 minutos.`,
   ];
 
   return {
@@ -57,6 +59,37 @@ export function resetPasswordEmail({
     subject,
     text: [...body, url, "Se não foi você, ignore esta mensagem."].join("\n\n"),
     html: layout(subject, body, { label: "Redefinir senha", url }),
+  };
+}
+
+export type ExistingAccountEmail = {
+  readonly to: string;
+  /** The login form: it also carries "Esqueci minha senha". */
+  readonly url: string;
+};
+
+/**
+ * Somebody signed up with an address that already has an account (ADR 0007).
+ *
+ * Sign-up answers exactly as it does for a new address, so that it does not
+ * tell a stranger which addresses exist; this message tells the one person
+ * who may know. It greets nobody by name, because the name on an account
+ * nobody confirmed was chosen by whoever created it — perhaps not the owner
+ * of this mailbox.
+ */
+export function existingAccountEmail({ to, url }: ExistingAccountEmail): EmailMessage {
+  const subject = `Este e-mail já tem uma conta no ${PRODUCT}`;
+  const body = [
+    `Alguém — provavelmente você — tentou criar uma conta no ${PRODUCT} com este endereço, e ele já tem uma.`,
+    "Se você lembra a senha, é só entrar.",
+    "Se não lembra, ou não reconhece essa conta, use “Esqueci minha senha” na mesma página. Definir uma senha nova também confirma que o endereço é seu, e a senha antiga deixa de valer.",
+  ];
+
+  return {
+    to,
+    subject,
+    text: [...body, url, "Se não foi você, ignore esta mensagem."].join("\n\n"),
+    html: layout(subject, body, { label: "Entrar", url }),
   };
 }
 

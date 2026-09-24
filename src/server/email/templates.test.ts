@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { memorySender } from "./sender";
 import {
+  existingAccountEmail,
   invitationEmail,
   resetPasswordEmail,
   verificationEmail,
@@ -13,6 +14,7 @@ describe("templates", () => {
     const messages = [
       verificationEmail({ to: "a@example.com", name: "Ana", url }),
       resetPasswordEmail({ to: "a@example.com", name: "Ana", url }),
+      existingAccountEmail({ to: "a@example.com", url }),
       invitationEmail({
         to: "a@example.com",
         workspaceName: "Planora",
@@ -41,6 +43,9 @@ describe("templates", () => {
         url,
       }).subject,
     ).toBe("Henrique convidou você para Obra");
+    expect(existingAccountEmail({ to: "a@example.com", url }).subject).toBe(
+      "Este e-mail já tem uma conta no Planora",
+    );
   });
 
   it("escape a name rather than trusting it as markup", () => {

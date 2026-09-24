@@ -85,8 +85,8 @@ export function RegisterForm({ next }: { next: string }) {
         <h1 className="pln-display text-2xl text-primary">Confirme seu e-mail</h1>
         <p className="text-[13px] text-secondary">
           Enviamos um link de confirmação para{" "}
-          <strong className="font-medium text-primary">{email}</strong>. Ele vale por
-          15 minutos.
+          <strong className="font-medium text-primary">{email}</strong>. Abra-o e
+          entre com a senha que você escolheu. Ele vale por 15 minutos.
         </p>
         <p className="text-xs text-subtle">Não chegou? Confira o spam, ou peça outro.</p>
 
