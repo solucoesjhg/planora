@@ -365,6 +365,75 @@ Not security, found on the way: `/api/attachments` ignores the chosen
 workspace; deleting a workspace leaves its files in the bucket; a date like
 `2026-99-99` passes validation and becomes a 500.
 
+### What to verify by hand when the audit ends
+
+What no pull request can do: look at production, and at the settings that live
+in dashboards rather than in git. Each pull request of the audit ticks what it
+makes checkable; the rest waits for the end. Every query runs in the Supabase
+SQL Editor and was dry-run against a local database.
+
+**In the database — what may already have happened**
+
+- [ ] **Owner invitations** (repaired in #28). The query in `DEPLOY.md` §7.5.
+  Expected: no rows. A row with `accepted_at` set is a second owner who got in
+  before the barrier was on.
+- [ ] **Identity tables behind the Data API.** Expected: no rows. Any row
+  means session tokens and password hashes are one anon key away — enable RLS
+  on those four tables and revoke the grants before anything else.
+  `select grantee, table_name, privilege_type from information_schema.role_table_grants where table_name in ('sessions','accounts','verifications','rate_limits') and grantee in ('anon','authenticated');`
+- [ ] **Automations used to multiply.** Rules per workspace, the outbox's
+  backlog, and who created an unusual number of tasks this week:
+  `select workspace_id, count(*) as rules from automations group by 1 order by 2 desc limit 10;`
+  `select count(*) as waiting, min(occurred_at) as oldest from outbox_events where processed_at is null;`
+  `select workspace_id, count(*) as tasks_last_7_days from tasks where created_at > now() - interval '7 days' group by 1 order by 2 desc limit 10;`
+- [ ] **Notifications to people outside the workspace.** There is no way to
+  remove a member yet, so any row here is `notify → user` pointed at a stranger:
+  `select n.workspace_id, n.user_id, count(*) from notifications n left join workspace_members m on m.workspace_id = n.workspace_id and m.user_id = n.user_id where m.id is null group by 1, 2;`
+- [ ] **Accounts never verified** — the raw material of the pre-registered
+  address: `select count(*) as unverified, min(created_at) as oldest from users where email_verified = false;`
+- [ ] **Uploads never confirmed**, which nothing cleans up:
+  `select count(*) as pending, pg_size_pretty(coalesce(sum(size), 0)) as declared, min(created_at) as oldest from attachments where status = 'pending';`
+  The declared size is what the browser claimed; the bucket's own usage
+  (Storage in the dashboard) is what landed.
+- [ ] **Every audit migration applied**:
+  `select hash, created_at from drizzle.__drizzle_migrations order by created_at desc limit 3;`
+
+**In the dashboards**
+
+- [ ] Supabase → **Advisors → Security**: no "RLS disabled in public" left once
+  the identity tables are fixed.
+- [ ] Supabase → **Data API**: Planora never uses it. If `public` is among the
+  exposed schemas, take it out.
+- [ ] Supabase → **Storage → the bucket**: allowed MIME types set to the
+  attachment list and a 25 MB size limit (arrives with the attachments pull
+  request, `DEPLOY.md` §1.2).
+- [ ] Vercel → **Environment Variables**: `APP_DATABASE_URL` present in
+  Production; `CRON_SECRET` at least 32 characters; no production secret
+  scoped to Preview.
+- [ ] Vercel → **the latest build log**: installed with pnpm 12 through
+  corepack, so `allowBuilds` in `pnpm-workspace.yaml` is honoured.
+- [ ] Resend → **Logs**: no burst of "Automação: …" messages, no spike in
+  bounces or complaints; the sending domain still has SPF, DKIM and DMARC.
+- [ ] GitHub → **Settings → Actions → General**: workflow permissions
+  read-only by default.
+- [ ] GitHub → **Branches**: `main` protected — a pull request required, with
+  `verify` and `database` passing.
+
+**On the machines that run the drill**
+
+- [ ] `docker compose up -d` again once the compose file binds to 127.0.0.1,
+  so Postgres and Mailpit stop answering the network.
+- [ ] `planora_restore_drill` dropped and the dumps under `backups/` deleted
+  after each drill: they are a full copy of production, sessions included.
+
+**To close it**
+
+- [ ] In production, with a real second address: invite, accept, land on the
+  workspace; the same link opened by another account says it is for another
+  address.
+- [ ] One more audit pass over `main` once the last pull request is in, so the
+  list above ends empty rather than assumed.
+
 ## What the phase-by-phase review found
 
 Read against the plan, phase by phase, with the code run against the real
