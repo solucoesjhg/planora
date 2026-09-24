@@ -39,7 +39,19 @@ variables.
 3. Leave **Public bucket** *off*. It has to stay private: every file is read
    through a URL this application signs, and only after it has checked that the
    person is in the workspace the file belongs to.
-4. Create.
+4. Turn on **Restrict file upload size for bucket** and set it to **25 MB**.
+5. Turn on **Restrict MIME types** and allow exactly these (the list in
+   `src/domain/attachments.ts`):
+
+   ```
+   image/png, image/jpeg, image/webp, image/gif, image/avif, application/pdf,
+   text/plain, text/csv, application/zip, application/msword,
+   application/vnd.openxmlformats-officedocument.wordprocessingml.document,
+   application/vnd.ms-excel,
+   application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+   ```
+6. Create — or, for a bucket that already exists, **⋯ → Edit bucket** and set
+   steps 4 and 5 there.
 
 The application checks this itself. With a public bucket every upload and
 every file link is refused — the toast says the store did not answer, and the
@@ -47,6 +59,15 @@ runtime log says `bucket "attachments" is public; it must be private`. Making a
 bucket public does not make an upload work: the browser uploads with a token
 the server signed, and the server uses the service role key, which needs no
 policy. Turning it off again takes effect on the next request, no redeploy.
+
+It checks steps 4 and 5 too (ADR 0006), before every new upload. The browser
+sends its bytes straight to the bucket, so the bucket is what refuses an SVG
+sent on a ticket for a PNG, or a file larger than the application would keep.
+While the bucket accepts more than that, no upload ticket is issued — the toast
+says the store did not answer, and the log names the settings to change,
+`bucket "attachments" accepts more than the application keeps (…)`. Files
+already stored stay readable meanwhile. A stricter bucket is fine; a looser one
+is not.
 
 ### 1.3 The keys
 
@@ -539,10 +560,13 @@ schemas** without `public`. To check both, in the SQL Editor:
 select grantee, table_name, privilege_type from information_schema.role_table_grants
 where table_schema = 'public' and grantee in ('anon', 'authenticated');
 select relname, relrowsecurity from pg_class
-where relname in ('sessions', 'accounts', 'verifications', 'rate_limits');
+where relnamespace = 'public'::regnamespace
+  and relname in ('sessions', 'accounts', 'verifications', 'rate_limits');
 ```
 
-No rows from the first; `true` four times from the second.
+No rows from the first; `true` four times from the second. (Without the
+`relnamespace` line it also finds `auth.sessions`, Supabase's own login table,
+which Planora does not use.)
 
 ### What a restore does not bring back
 

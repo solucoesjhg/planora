@@ -5,13 +5,16 @@ import { senderFromEnvironment } from "@/server/email/sender";
 import { drainOutbox } from "@/server/events/dispatcher";
 import { runRoutines } from "@/server/modules/automations/routines";
 import { deliverPendingEmails, sendDigests } from "@/server/modules/notifications/service";
+import { sweepAbandonedUploads } from "@/server/modules/tasks/attachments";
+import { getStorage } from "@/server/storage";
 
 /**
  * The clock's door (DEVELOPMENT_PLAN.md §7 Phase 9). Whoever ticks — pg_cron
  * through pg_net on Supabase, a Vercel Cron, a curl in a terminal — calls this
  * with the shared secret, and one tick does the whole round: the routines,
  * the outbox (the retry path for what `after()` failed to drain), the emails
- * that have not left, and the digests that are due.
+ * that have not left, the digests that are due, and the uploads nobody
+ * confirmed (ADR 0006).
  *
  * Without `CRON_SECRET` the route does not exist: an open scheduler endpoint
  * is a way to make somebody else's server do work on demand.
@@ -46,9 +49,10 @@ async function tick(request: Request): Promise<Response> {
   const dispatched = await drainOutbox(database);
   const emails = await deliverPendingEmails(database, sender, baseUrl);
   const digests = await sendDigests(database, sender, baseUrl, now);
+  const uploads = await sweepAbandonedUploads(database, getStorage(), now);
 
   return NextResponse.json(
-    { ok: true, at: now.toISOString(), routines, dispatched, emails, digests },
+    { ok: true, at: now.toISOString(), routines, dispatched, emails, digests, uploads },
     { headers: { "cache-control": "no-store" } },
   );
 }

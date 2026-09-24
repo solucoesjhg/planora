@@ -3,7 +3,7 @@ import "server-only";
 import type { Priority } from "@/domain/types";
 import { can, type TenantContext } from "@/server/auth/tenant";
 import type { Executor } from "@/server/db/client";
-import { attachmentUrl } from "./attachments";
+import { attachmentUrl, mayRemoveAttachment } from "./attachments";
 import { membersOf } from "@/server/modules/workspaces/repository";
 import { loadTaskDocument, tasksOfProject } from "./repository";
 
@@ -22,6 +22,8 @@ export type TaskFileView = {
   readonly size: number;
   readonly url: string;
   readonly isImage: boolean;
+  /** Whoever sent it, or whoever manages projects (ADR 0006). */
+  readonly removable: boolean;
 };
 
 export type TaskView = {
@@ -104,6 +106,7 @@ export async function loadTaskView(
     size: file.size,
     url: attachmentUrl(file.id),
     isImage: file.mime.startsWith("image/"),
+    removable: mayRemoveAttachment(context, file.uploadedBy),
   }));
 
   const [siblings, members] = await Promise.all([

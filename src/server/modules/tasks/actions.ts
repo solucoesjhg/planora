@@ -361,7 +361,8 @@ const uploadSchema = z.object({
   taskId: uuid.nullable(),
   name: z.string().min(1).max(255),
   mime: z.string().min(1).max(255),
-  size: z.number().int().nonnegative(),
+  // The declaration is only a question (ADR 0006), but one with a sane size.
+  size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
 });
 
 export async function requestUploadAction(

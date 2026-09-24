@@ -12,6 +12,11 @@
  * A reader's URL is signed the same way, and only after the workspace check:
  * `linkFor` is the one door, and it expires on its own.
  *
+ * The declaration is a question and the store's answer decides (ADR 0006):
+ * what landed is kept only when its type is the one declared and on the list,
+ * a link is signed only for what was kept, and an upload nobody confirmed is
+ * swept away by the clock rather than left in the bucket for good.
+ *
  * All four of these cross the network between two statements, which is the one
  * thing a scope may not span (ADR 0002): a pooled backend held open while we
  * wait on the store is idle in transaction, and `planora_app` is given ten
@@ -23,13 +28,20 @@
  * old shape back, with the store's round trip inside it.
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, lt } from "drizzle-orm";
+import {
+  ALLOWED_MIME_TYPES,
+  MAX_ATTACHMENT_BYTES,
+  isAllowedType,
+  landedAsDeclared,
+} from "@/domain/attachments";
 import { isRefused, ok, refused, type Result } from "@/lib/result";
 import { newId } from "@/lib/id";
 import { can, type TenantContext } from "@/server/auth/tenant";
 import {
   inScope,
   withTenant,
+  type Database,
   type Executor,
   type Transaction,
 } from "@/server/db/client";
@@ -46,25 +58,20 @@ export type AttachmentFailure =
   /** The store threw. Not the file, not the person: the cause is in the log. */
   | "storage-unavailable";
 
-/** 25 MB — a photograph of a wall, a PDF of a quote, a spreadsheet. */
-export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+/** The rule lives in the domain; these names stay where callers look for them. */
+export { ALLOWED_MIME_TYPES, MAX_ATTACHMENT_BYTES };
 
-/** No SVG: it is a document that can carry script, not a picture. */
-export const ALLOWED_MIME_TYPES = [
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "image/gif",
-  "image/avif",
-  "application/pdf",
-  "text/plain",
-  "text/csv",
-  "application/zip",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-] as const;
+/**
+ * Whether this person may take a file away. Anybody who writes tasks may add
+ * one; removing somebody else's is moderating the project, like deleting
+ * somebody else's comment (§4.2.1) — and the bucket keeps no copy.
+ */
+export function mayRemoveAttachment(context: TenantContext, uploadedBy: string): boolean {
+  return (
+    (can(context, "write-task") && uploadedBy === context.userId) ||
+    can(context, "manage-project")
+  );
+}
 
 /**
  * Where an attachment lives, as far as the rest of the application is
@@ -114,7 +121,7 @@ export async function requestUpload(
 > {
   if (!can(context, "write-task")) return refused("forbidden", context.role);
 
-  if (!ALLOWED_MIME_TYPES.includes(input.mime as (typeof ALLOWED_MIME_TYPES)[number])) {
+  if (!isAllowedType(input.mime)) {
     return refused("unsupported-type", input.mime);
   }
   // The declared size is a courtesy check; `confirmUpload` measures what landed.
@@ -181,12 +188,15 @@ export async function confirmUpload(
   const stored = asked.value;
   if (!stored) return refused("missing", row.path);
 
-  // What the store holds, not what the browser claimed it would send. The
-  // object goes first and the row after, as before: the row still says
-  // `pending` while the object is being taken away, and a `pending` row whose
-  // object is gone is what the second step reads as `missing`.
-  if (stored.size > MAX_ATTACHMENT_BYTES) {
-    const removed = await askStore("remove an oversized object", () =>
+  // What the store holds, not what the browser claimed it would send: its
+  // size, and its type — which the store takes from the upload's own
+  // `Content-Type`, whatever the ticket was asked for (ADR 0006). The object
+  // goes first and the row after, as before: the row still says `pending`
+  // while the object is being taken away, and a `pending` row whose object is
+  // gone is what the second step reads as `missing`.
+  const tooLarge = stored.size > MAX_ATTACHMENT_BYTES;
+  if (tooLarge || !landedAsDeclared(row.mime, stored.mime)) {
+    const removed = await askStore("remove an object that is not what was asked for", () =>
       storage.remove(row.path),
     );
     if (isRefused(removed)) return removed;
@@ -200,7 +210,9 @@ export async function confirmUpload(
           ),
         );
     });
-    return refused("too-large", String(stored.size));
+    return tooLarge
+      ? refused("too-large", String(stored.size))
+      : refused("unsupported-type", stored.mime);
   }
 
   await step(db, context, async (tx) => {
@@ -245,7 +257,9 @@ export async function linkFor(
   const row = await step(db, context, (tx) =>
     findAttachment(tx, context, attachmentId),
   );
-  if (!row) return refused("not-found", attachmentId);
+  // Only what was kept. A `pending` row names bytes nobody has vouched for:
+  // whatever the browser sent, before `confirmUpload` looked at it.
+  if (!row || row.status !== "stored") return refused("not-found", attachmentId);
 
   const url = await askStore("sign a link", () => storage.signedUrl(row.path, seconds));
   if (isRefused(url)) return url;
@@ -265,6 +279,7 @@ export async function removeAttachment(
     findAttachment(tx, context, attachmentId),
   );
   if (!row) return refused("not-found", attachmentId);
+  if (!mayRemoveAttachment(context, row.uploadedBy)) return refused("forbidden", context.role);
 
   // The bytes first: a row without an object is a broken card, an object
   // without a row is a leak nobody can see. Reading the path and deleting the
@@ -285,6 +300,54 @@ export async function removeAttachment(
   });
 
   return ok({ attachmentId });
+}
+
+/** Two hours for the store's own ticket, and an hour's grace on top. */
+export const ABANDONED_AFTER_MS = 3 * 60 * 60 * 1000;
+
+/**
+ * Uploads nobody confirmed, taken away by the clock (ADR 0006).
+ *
+ * A ticket is good for two hours; a row still `pending` an hour after that was
+ * abandoned — a tab closed mid-upload, or bytes sent on purpose and never
+ * confirmed, which nothing else would ever measure or remove. Across every
+ * workspace, so it runs on the clock's own lane, and a batch at a time: the
+ * object first and the row after, as `removeAttachment` does, so a store that
+ * fails leaves the row for the next tick.
+ */
+export async function sweepAbandonedUploads(
+  db: Database,
+  storage: Storage,
+  now: Date = new Date(),
+  batch = 100,
+): Promise<{ swept: number; failed: number }> {
+  const abandoned = await db
+    .select({ id: attachments.id, path: attachments.path })
+    .from(attachments)
+    .where(
+      and(
+        eq(attachments.status, "pending"),
+        lt(attachments.createdAt, new Date(now.getTime() - ABANDONED_AFTER_MS)),
+      ),
+    )
+    .orderBy(asc(attachments.createdAt))
+    .limit(batch);
+
+  let swept = 0;
+  let failed = 0;
+  for (const row of abandoned) {
+    const removed = await askStore("remove an abandoned upload", () => storage.remove(row.path));
+    if (isRefused(removed)) {
+      failed += 1;
+      continue;
+    }
+    await db
+      .delete(attachments)
+      .where(and(eq(attachments.id, row.id), eq(attachments.status, "pending")));
+    swept += 1;
+  }
+
+  return { swept, failed };
 }
 
 export async function findAttachment(

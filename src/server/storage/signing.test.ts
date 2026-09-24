@@ -47,4 +47,16 @@ describe("signed file links", () => {
       await verifyPath("read", path, { expires: Number.NaN, signature: "x" }, SECRET),
     ).toBe(false);
   });
+
+  /**
+   * An upload ticket asked for as a PNG, replayed with `text/html` after it was
+   * confirmed, was stored and served as HTML from this origin (ADR 0006).
+   */
+  it("binds an upload to the type it was asked for", async () => {
+    const link = await signPath("upload", path, 60, SECRET, "image/png");
+
+    expect(await verifyPath("upload", path, link, SECRET, new Date(), "image/png")).toBe(true);
+    expect(await verifyPath("upload", path, link, SECRET, new Date(), "text/html")).toBe(false);
+    expect(await verifyPath("upload", path, link, SECRET)).toBe(false);
+  });
 });

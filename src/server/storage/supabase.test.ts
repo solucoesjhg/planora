@@ -9,6 +9,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const service = vi.hoisted(() => ({
   public: false,
+  fileSizeLimit: 25 * 1024 * 1024 as number | undefined,
+  allowedMimeTypes: ["image/png", "application/pdf"] as string[] | undefined,
   describedTimes: 0,
   urls: [] as string[],
 }));
@@ -20,7 +22,16 @@ vi.mock("@supabase/supabase-js", () => ({
     storage: {
       getBucket: async (name: string) => {
         service.describedTimes += 1;
-        return { data: { id: name, name, public: service.public }, error: null };
+        return {
+          data: {
+            id: name,
+            name,
+            public: service.public,
+            file_size_limit: service.fileSizeLimit,
+            allowed_mime_types: service.allowedMimeTypes,
+          },
+          error: null,
+        };
       },
       from: (name: string) => ({
         createSignedUploadUrl: async (path: string) => ({
@@ -45,6 +56,8 @@ import { projectOrigin, supabaseStorageAdapter } from "./supabase";
 describe("supabaseStorageAdapter", () => {
   beforeEach(() => {
     service.public = false;
+    service.fileSizeLimit = 25 * 1024 * 1024;
+    service.allowedMimeTypes = ["image/png", "application/pdf"];
     service.describedTimes = 0;
     service.urls = [];
   });
@@ -113,5 +126,38 @@ describe("supabaseStorageAdapter", () => {
       method: "PUT",
     });
     expect(service.describedTimes).toBe(2);
+  });
+
+  /**
+   * The browser uploads straight to the bucket, so the bucket is the only
+   * thing between a ticket and whatever arrives on it (ADR 0006). One left at
+   * Supabase's defaults took an SVG on a ticket asked for as a PNG.
+   */
+  it("refuses a ticket while the bucket takes any type or any size, and still signs links", async () => {
+    service.allowedMimeTypes = undefined;
+    service.fileSizeLimit = undefined;
+    const storage = supabaseStorageAdapter("https://x.supabase.co", "service-role");
+
+    await expect(storage.upload("ws/p/a/planta.pdf", "application/pdf")).rejects.toThrow(
+      /accepts more than the application keeps \(no-size-limit, any-type-accepted\)/,
+    );
+    // A file already kept is still readable while the bucket is being fixed.
+    await expect(storage.signedUrl("ws/p/a/planta.pdf", 60)).resolves.toContain("/object/sign/");
+  });
+
+  it("refuses a bucket looser than the application, and asks again once it is fixed", async () => {
+    service.allowedMimeTypes = ["image/png", "image/svg+xml"];
+    service.fileSizeLimit = 50 * 1024 * 1024;
+    const storage = supabaseStorageAdapter("https://x.supabase.co", "service-role");
+
+    await expect(storage.upload("ws/p/a/foto.png", "image/png")).rejects.toThrow(
+      /size-limit-above-ours, type-outside-ours/,
+    );
+
+    service.allowedMimeTypes = ["image/png"];
+    service.fileSizeLimit = 10 * 1024 * 1024;
+    await expect(storage.upload("ws/p/a/foto.png", "image/png")).resolves.toMatchObject({
+      method: "PUT",
+    });
   });
 });
