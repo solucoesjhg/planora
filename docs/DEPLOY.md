@@ -521,6 +521,29 @@ joined a workspace as a second owner before the barrier was on; look at
 `workspace_members` for that workspace before deciding what to do. Rows without
 it are inert and can be deleted.
 
+### 7.6 Supabase's Data API stays off `public`
+
+Supabase serves `public` over HTTP — `/rest/v1` and GraphQL at `/graphql/v1` —
+as its `anon` and `authenticated` roles, and by default grants them everything
+on every table created there. Planora never uses it: the application reaches
+Postgres only through its own connection strings. Migration
+`0012_identity_tables_closed.sql` revokes every grant those two roles hold in
+`public`, now and for tables created later, and turns row-level security on for
+the four identity tables with no policy, so that only their owner reads them
+(ADR 0005).
+
+Keep the other half in the dashboard: **Project Settings → Data API → Exposed
+schemas** without `public`. To check both, in the SQL Editor:
+
+```sql
+select grantee, table_name, privilege_type from information_schema.role_table_grants
+where table_schema = 'public' and grantee in ('anon', 'authenticated');
+select relname, relrowsecurity from pg_class
+where relname in ('sessions', 'accounts', 'verifications', 'rate_limits');
+```
+
+No rows from the first; `true` four times from the second.
+
 ### What a restore does not bring back
 
 Worth repeating here because it belongs to both sections: `CREATE ROLE` is

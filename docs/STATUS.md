@@ -279,13 +279,25 @@ strangers: a rule may name only members, `notify` tells only members when it
 runs, and `recipientsOf` filters every notification to members, so a payload
 naming an outsider — which the barrier accepts — emails nobody.
 
+**The identity tables answer to their owner alone (2026-09-24).** The third
+repair. ADR 0002 left `sessions`, `accounts`, `verifications` and `rate_limits`
+outside RLS because `planora_app` holds no grant on them, and that was true of
+Planora's roles only. Supabase serves `public` over HTTP as `anon` and
+`authenticated`, and production showed both holding every privilege on all
+four: with the anon key, every session token in plaintext. No request had
+reached the Data API. ADR 0005: migration `0012` turns RLS on for the four with
+no policy — `ENABLE`, not `FORCE`, so Better Auth, which connects as their
+owner, is untouched — and revokes everything those two roles hold in `public`,
+for tables still to come as well. The catalog test now requires it, and a role
+granted everything on the four, standing in for `anon`, reads and writes
+nothing.
+
 ## Next
 
 - The rest of the security audit, in this order — each its own pull request:
-  the identity tables' exposure through Supabase's Data API (run the query in
-  the audit section first), attachments, the pre-registered account, the
-  ESLint boundaries and `server-only`, then the barrier's per-command policies
-  and the membership foreign keys. The list is below, under **What the security
+  attachments, the pre-registered account, the ESLint boundaries and
+  `server-only`, then the barrier's per-command policies and the membership
+  foreign keys. The list is below, under **What the security
   audit found**.
 - Phase 11 · Launch readiness — a preview per pull request, error tracking, the
   performance budget, the accessibility pass, and E2E in CI (§7).
@@ -343,15 +355,15 @@ rule may name only members, `notify` tells only members when it runs, and every
 notification's recipients are filtered to members whatever the event's payload
 names.
 
+**Repaired** (ADR 0005): production answered that `anon` and `authenticated`
+held every privilege on `sessions`, `accounts`, `verifications` and
+`rate_limits`, with RLS off — the project's anon key would have read every
+session token and password hash through the Data API. The API logs showed no
+request; `public` was taken out of the exposed schemas and the grants revoked
+by hand the same day, and migration `0012` makes both permanent.
+
 **Open, most serious first:**
 
-- **The identity tables have RLS off.** `sessions`, `accounts`,
-  `verifications` and `rate_limits` rely on grants alone. On Supabase, tables
-  created in `public` usually carry default grants to `anon` and
-  `authenticated`, which would put session tokens and password hashes behind
-  the anon key through the Data API. Planora never publishes that key, so this
-  is latent — check it:
-  `select grantee, table_name, privilege_type from information_schema.role_table_grants where table_name in ('sessions','accounts','verifications','rate_limits') and grantee in ('anon','authenticated');`
 - **A pre-registered address can be taken.** Somebody signs up with another
   person's address and a password of their own; when the owner of the address
   later signs up, Better Auth answers "ok" and sends nothing, and "Reenviar"
@@ -400,10 +412,11 @@ SQL Editor and was dry-run against a local database.
 - [ ] **Owner invitations** (repaired in #28). The query in `DEPLOY.md` §7.5.
   Expected: no rows. A row with `accepted_at` set is a second owner who got in
   before the barrier was on.
-- [ ] **Identity tables behind the Data API.** Expected: no rows. Any row
-  means session tokens and password hashes are one anon key away — enable RLS
-  on those four tables and revoke the grants before anything else.
-  `select grantee, table_name, privilege_type from information_schema.role_table_grants where table_name in ('sessions','accounts','verifications','rate_limits') and grantee in ('anon','authenticated');`
+- [x] **Identity tables behind the Data API** (2026-09-24). Every privilege,
+  for both roles, on all four tables; no request in the API logs. Revoked by
+  hand, `public` taken out of the exposed schemas, and migration `0012` keeps
+  it so — after it deploys, `DEPLOY.md` §7.6 has the two queries that confirm
+  it.
 - [ ] **Automations used to multiply** (repaired by ADR 0004 — this asks
   whether anybody did it before). Rules per workspace — more than fifty means
   the workspace predates the cap and can write no more until it deletes some —
@@ -428,8 +441,8 @@ SQL Editor and was dry-run against a local database.
 
 - [ ] Supabase → **Advisors → Security**: no "RLS disabled in public" left once
   the identity tables are fixed.
-- [ ] Supabase → **Data API**: Planora never uses it. If `public` is among the
-  exposed schemas, take it out.
+- [x] Supabase → **Data API**: `public` taken out of the exposed schemas
+  (2026-09-24).
 - [ ] Supabase → **Storage → the bucket**: allowed MIME types set to the
   attachment list and a 25 MB size limit (arrives with the attachments pull
   request, `DEPLOY.md` §1.2).
