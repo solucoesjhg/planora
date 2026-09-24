@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { dayAfter } from "@/fixtures/board";
 import {
-  MAX_ACTIONS_PER_EVENT,
+  MAX_ACTIONS_PER_ACT,
+  MAX_ACTIONS_PER_RULE,
   MAX_CAUSATION_DEPTH,
+  MAX_RULES_PER_WORKSPACE,
+  grantActions,
+  mayAddRule,
   evaluateRule,
   validateRule,
   type Action,
@@ -98,7 +102,7 @@ describe("automation cannot run away", () => {
       today,
     );
     expect(verdict.kind).toBe("fire");
-    if (verdict.kind === "fire") expect(verdict.actions).toHaveLength(MAX_ACTIONS_PER_EVENT);
+    if (verdict.kind === "fire") expect(verdict.actions).toHaveLength(MAX_ACTIONS_PER_RULE);
   });
 
   it("refuses an event that is already the consequence of too many automations", () => {
@@ -123,5 +127,37 @@ describe("a rule as written", () => {
     expect(
       validateRule({ ...rule, trigger: "task.exploded" as Rule["trigger"] }),
     ).toEqual(["unknown-trigger"]);
+  });
+});
+
+/**
+ * The audit of 2026-09-24 (ADR 0004): the ten-action cap was per rule, so ten
+ * rules of ten subtasks turned one new task into a million by depth three.
+ */
+describe("what one act can buy", () => {
+  it("serves the rules in turn until the act has spent its allowance", () => {
+    const wants = [4, 4, 4, 4];
+    let spent = 0;
+    const granted = wants.map((wanted) => {
+      const each = grantActions(wanted, spent);
+      spent += each;
+      return each;
+    });
+
+    expect(granted).toStrictEqual([4, 4, 2, 0]);
+    expect(spent).toBe(MAX_ACTIONS_PER_ACT);
+  });
+
+  it("never grants past the allowance, however much was already spent", () => {
+    expect(grantActions(MAX_ACTIONS_PER_RULE, 0)).toBe(MAX_ACTIONS_PER_ACT);
+    expect(grantActions(3, MAX_ACTIONS_PER_ACT)).toBe(0);
+    // A count that somehow overshot — two dispatchers at once — grants nothing
+    // rather than something negative.
+    expect(grantActions(3, MAX_ACTIONS_PER_ACT + 4)).toBe(0);
+  });
+
+  it("stops a workspace at its rule allowance", () => {
+    expect(mayAddRule(MAX_RULES_PER_WORKSPACE - 1)).toBe(true);
+    expect(mayAddRule(MAX_RULES_PER_WORKSPACE)).toBe(false);
   });
 });

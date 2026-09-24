@@ -679,7 +679,7 @@ The order is negotiable in most places and non-negotiable in one: **the domain c
 - The workspace rule engine: `when <event> · if <condition> · then <action>` — assign, move, comment, create a subtask, change priority, notify
 - Time-based routines: deadline approaching (default 2 days), deadline passed, stalled in a column beyond its phase threshold (§3.5, default 14/7/5 days), project entering `Critical`
 - **Idempotent execution**: an automation run is keyed on `(event_id, automation_id)` with a unique index, so a retried delivery re-sends the notification without re-running the action, and no event fires the same rule twice
-- A cap of 10 actions per event and loop detection, so a rule that triggers a rule cannot run away
+- A cap of 10 actions per event and loop detection, so a rule that triggers a rule cannot run away — the ten counted per act, across every rule and every depth, since ADR 0004; and only members of the workspace can be named or told
 - A run log the user can read: what fired, what the rule did, what failed
 
 > **Done when** a rule created in the interface fires from a real board event, the effect appears in the history authored by the automation, and a delivery failure retried three times leaves exactly one row in `automation_runs` and one side effect.

@@ -264,14 +264,29 @@ refuses a real flow fails a test before it fails a person. `DEPLOY.md` §7.5 has
 the one query to run in production: whether an `owner` invitation was ever
 issued.
 
+**One act buys ten automated actions (2026-09-24).** The second repair of the
+audit. The Phase 9 cap of ten was applied per rule, and a workspace could hold
+any number of rules: a rule of four subtasks on `task.created` made 84 tasks
+from one, and ten rules of ten would have made a million, through the one outbox
+every workspace shares. ADR 0004 counts the ten per act — the event a person or
+the clock caused — across every rule it sets off and every depth. Each run
+records its act (`chain_id`) and what it was granted (migration `0011`, which
+files the old runs under the root of their events); the grant is reserved under
+an advisory lock on the act, so two dispatchers cannot both spend the same
+allowance. The log says in words when a rule ran short or not at all. A
+workspace holds at most fifty rules. And `notify → user` no longer reaches
+strangers: a rule may name only members, `notify` tells only members when it
+runs, and `recipientsOf` filters every notification to members, so a payload
+naming an outsider — which the barrier accepts — emails nobody.
+
 ## Next
 
 - The rest of the security audit, in this order — each its own pull request:
-  the automations (fan-out and `notify` reaching non-members), the identity
-  tables' exposure through Supabase's Data API (run the query in the audit
-  section first), attachments, the pre-registered account, the ESLint
-  boundaries and `server-only`, then the barrier's per-command policies. The
-  list is below, under **What the security audit found**.
+  the identity tables' exposure through Supabase's Data API (run the query in
+  the audit section first), attachments, the pre-registered account, the
+  ESLint boundaries and `server-only`, then the barrier's per-command policies
+  and the membership foreign keys. The list is below, under **What the security
+  audit found**.
 - Phase 11 · Launch readiness — a preview per pull request, error tracking, the
   performance budget, the accessibility pass, and E2E in CI (§7).
 - Watch the phone board in use. Directions B (a snapping carousel) and C (a
@@ -292,7 +307,10 @@ None open. The verification link was the last one, and it was decided on
   A Supabase bucket needs only the credentials; no other file changes.
 - **E2E does not run in CI yet.** It needs Postgres, Mailpit and a browser on
   the runner; the plan puts the full suite in CI at Phase 11. It runs locally
-  with `pnpm e2e`.
+  with `pnpm e2e`. One test to watch when it does: `board.spec.ts` → "a swipe
+  on a card scrolls, and a long press carries it" failed once in four full
+  local runs on 2026-09-24, under three workers, and passed five of five
+  alone. The hold is timed, and a loaded machine stretches it.
 - `pnpm db:seed:dev` writes one standing developer account with the example
   project, and refuses any database that is not local. A full `db:seed` of a
   populated board is still worth adding when a screen needs one to look at;
@@ -311,21 +329,22 @@ everywhere it was attacked: every id a client sends is scoped by
 their own. The sanitizer, `safeDestination`, CSRF, cookies, headers and the
 client bundles held too; no secret is in git or in the browser. What did not:
 
-**Repaired** (ADR 0003): accepting an invitation failed in production; an admin
-could create owners; an invitation was not bound to its address, and could be
-redeemed twice at once; the invitation lane could write a membership with any
-role.
+**Repaired** (ADR 0003, #28): accepting an invitation failed in production; an
+admin could create owners; an invitation was not bound to its address, and
+could be redeemed twice at once; the invitation lane could write a membership
+with any role.
+
+**Repaired** (ADR 0004): automations multiplied without bound — the ten-action
+cap was per rule and a workspace could hold any number, so one task became 84
+with a single rule of four subtasks; now one act buys ten actions across every
+rule and depth, reserved under a lock when each run is claimed, and a workspace
+holds at most fifty rules. `notify → user` reached any account by email; now a
+rule may name only members, `notify` tells only members when it runs, and every
+notification's recipients are filtered to members whatever the event's payload
+names.
 
 **Open, most serious first:**
 
-- **Automations multiply without bound.** The ten-action cap is per rule, not
-  per event, and a workspace may have any number of rules; `create_subtask`
-  grows as B + B² + B³ to depth 3. One task can become a million, and the
-  outbox is one queue for every workspace. Any new account can do it.
-- **`notify → user` reaches anybody.** The recipient is not checked against
-  membership, the dispatcher writes on the system lane, and the email goes out
-  from Planora's domain. `notifications`, `task_assignees` and
-  `notification_preferences` are also not tied to membership in the database.
 - **The identity tables have RLS off.** `sessions`, `accounts`,
   `verifications` and `rate_limits` rely on grants alone. On Supabase, tables
   created in `public` usually carry default grants to `anon` and
@@ -350,8 +369,12 @@ role.
 - **Barrier gaps the application does not reach today.** The `workspaces`
   policy uses one expression for every command, so any member — a viewer —
   may `DELETE` a workspace at the database level; `workspace_members` likewise
-  for one's own memberships. `outbox_events.dedupe_key` is unique across
-  tenants. `planora.user_id` is believed, not resolved.
+  for one's own memberships. `notifications`, `task_assignees` and
+  `notification_preferences` accept a row naming someone outside the workspace
+  — the application no longer writes one (ADR 0004), and composite foreign keys
+  to `workspace_members` would make the database refuse it too.
+  `outbox_events.dedupe_key` is unique across tenants. `planora.user_id` is
+  believed, not resolved.
 - Lower: formula injection in the CSV export; a deleted project still readable
   and writable by id; any member may delete anyone's attachment; comments
   signed by an automation editable by the rule's author; the account name
@@ -381,13 +404,16 @@ SQL Editor and was dry-run against a local database.
   means session tokens and password hashes are one anon key away — enable RLS
   on those four tables and revoke the grants before anything else.
   `select grantee, table_name, privilege_type from information_schema.role_table_grants where table_name in ('sessions','accounts','verifications','rate_limits') and grantee in ('anon','authenticated');`
-- [ ] **Automations used to multiply.** Rules per workspace, the outbox's
-  backlog, and who created an unusual number of tasks this week:
+- [ ] **Automations used to multiply** (repaired by ADR 0004 — this asks
+  whether anybody did it before). Rules per workspace — more than fifty means
+  the workspace predates the cap and can write no more until it deletes some —
+  the outbox's backlog, and who created an unusual number of tasks this week:
   `select workspace_id, count(*) as rules from automations group by 1 order by 2 desc limit 10;`
   `select count(*) as waiting, min(occurred_at) as oldest from outbox_events where processed_at is null;`
   `select workspace_id, count(*) as tasks_last_7_days from tasks where created_at > now() - interval '7 days' group by 1 order by 2 desc limit 10;`
-- [ ] **Notifications to people outside the workspace.** There is no way to
-  remove a member yet, so any row here is `notify → user` pointed at a stranger:
+- [ ] **Notifications to people outside the workspace** (repaired by ADR
+  0004). There is no way to remove a member yet, so any row here is
+  `notify → user` pointed at a stranger before the repair:
   `select n.workspace_id, n.user_id, count(*) from notifications n left join workspace_members m on m.workspace_id = n.workspace_id and m.user_id = n.user_id where m.id is null group by 1, 2;`
 - [ ] **Accounts never verified** — the raw material of the pre-registered
   address: `select count(*) as unverified, min(created_at) as oldest from users where email_verified = false;`

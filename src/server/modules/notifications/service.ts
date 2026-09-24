@@ -33,6 +33,7 @@ import {
   markDigestSent,
   markEmailFailed,
   markEmailSent,
+  membersAmong,
   pendingEmails,
   preferencesOf,
   unreadSince,
@@ -45,10 +46,18 @@ type EventRow = typeof outboxEvents.$inferSelect;
 const MANAGING_ROLES = ["owner", "admin", "manager"] as const;
 
 /**
- * The people an event concerns, minus whoever caused it: nobody needs to be
- * told what they just did themselves.
+ * The people an event concerns, minus whoever caused it — nobody needs to be
+ * told what they just did themselves — and minus anybody who is not in the
+ * workspace. A payload names people as ids, and an id in a payload is not a
+ * membership: the barrier accepts a row naming a stranger as long as its
+ * workspace is right, and the email this row becomes would leave Planora's
+ * domain for that stranger (ADR 0004).
  */
 export async function recipientsOf(executor: Executor, event: EventRow): Promise<string[]> {
+  return membersAmong(executor, event.workspaceId, await concernedBy(executor, event));
+}
+
+async function concernedBy(executor: Executor, event: EventRow): Promise<string[]> {
   const payload = (event.payload ?? {}) as Record<string, unknown>;
   const actor = event.actorKind === "user" ? event.actorId : null;
   const without = (ids: readonly string[]) => [...new Set(ids)].filter((id) => id !== actor);

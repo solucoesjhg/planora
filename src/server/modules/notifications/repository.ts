@@ -6,7 +6,7 @@ import { and, asc, desc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { Channels } from "@/lib/notifications";
 import type { TenantContext } from "@/server/auth/tenant";
 import type { Executor } from "@/server/db/client";
-import { notificationPreferences, notifications } from "@/server/db/schema";
+import { notificationPreferences, notifications, workspaceMembers } from "@/server/db/schema";
 
 export type NotificationRow = typeof notifications.$inferSelect;
 export type PreferenceRow = typeof notificationPreferences.$inferSelect;
@@ -21,6 +21,31 @@ export type NewNotification = {
   readonly href: string | null;
   readonly email: boolean;
 };
+
+/**
+ * The people among these who belong to the workspace, in the order given.
+ *
+ * Whoever an event or a rule names, only a member is told: a rule's `notify`
+ * once reached any account in the deployment, and a notification is also an
+ * email from Planora's own domain (ADR 0004).
+ */
+export async function membersAmong(
+  executor: Executor,
+  workspaceId: string,
+  userIds: readonly string[],
+): Promise<string[]> {
+  const unique = [...new Set(userIds)];
+  if (unique.length === 0) return [];
+
+  const rows = await executor
+    .select({ userId: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .where(
+      and(eq(workspaceMembers.workspaceId, workspaceId), inArray(workspaceMembers.userId, unique)),
+    );
+  const members = new Set(rows.map((row) => row.userId));
+  return unique.filter((userId) => members.has(userId));
+}
 
 /** One row per person per event; a retried dispatch writes nothing twice. */
 export async function insertNotifications(
