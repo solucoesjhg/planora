@@ -182,7 +182,7 @@ export function TaskFiles({ task }: { task: TaskView }) {
                 <Download size={13} aria-hidden />
               </a>
 
-              {task.canWrite ? (
+              {file.removable ? (
                 <button
                   type="button"
                   aria-label={`Remover ${file.name}`}

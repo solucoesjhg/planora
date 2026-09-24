@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { authSecret } from "@/server/auth/secret";
-import { MAX_ATTACHMENT_BYTES } from "@/server/modules/tasks/attachments";
-import { readLocalObject, verifyLocalLink, writeLocalObject } from "@/server/storage/local";
+import { MAX_ATTACHMENT_BYTES } from "@/domain/attachments";
+import {
+  localObjectExists,
+  readLocalObject,
+  verifyLocalLink,
+  writeLocalObject,
+} from "@/server/storage/local";
 import { getStorage } from "@/server/storage";
 
 /**
@@ -39,20 +44,30 @@ export async function GET(request: Request, context: Context): Promise<Response>
   });
 }
 
+/**
+ * An upload, the way the bucket takes one (ADR 0006): stored under the type the
+ * ticket was signed for — not the `Content-Type` that arrives with the bytes —
+ * and never over an object already there, so a ticket cannot be replayed to
+ * replace a file after it was confirmed.
+ */
 export async function PUT(request: Request, context: Context): Promise<Response> {
   const guard = await authorize(request, context, "upload");
   if (guard.refusal) return guard.refusal;
+
+  const declared = Number(request.headers.get("content-length") ?? "0");
+  if (declared > MAX_ATTACHMENT_BYTES) {
+    return NextResponse.json({ error: "too-large" }, { status: 413 });
+  }
+  if (await localObjectExists(guard.path)) {
+    return NextResponse.json({ error: "exists" }, { status: 409 });
+  }
 
   const bytes = new Uint8Array(await request.arrayBuffer());
   if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
     return NextResponse.json({ error: "too-large" }, { status: 413 });
   }
 
-  await writeLocalObject(
-    guard.path,
-    bytes,
-    request.headers.get("content-type") ?? "application/octet-stream",
-  );
+  await writeLocalObject(guard.path, bytes, guard.type ?? "application/octet-stream");
 
   return NextResponse.json({ ok: true });
 }
@@ -61,25 +76,34 @@ async function authorize(
   request: Request,
   context: Context,
   intent: "read" | "upload",
-): Promise<{ path: string; refusal: Response | null }> {
+): Promise<{ path: string; type: string | undefined; refusal: Response | null }> {
+  const notFound = NextResponse.json({ error: "not-found" }, { status: 404 });
   const { path: segments } = await context.params;
-  const path = segments.map(decodeURIComponent).join("/");
+  let path: string;
+  try {
+    path = segments.map(decodeURIComponent).join("/");
+  } catch {
+    // A stray `%` is a URL nobody here issued, not a server error.
+    return { path: "", type: undefined, refusal: notFound };
+  }
 
   if (getStorage().name !== "local") {
     // Production signs its URLs at the bucket; this route would be a second,
     // weaker door onto the same objects.
-    return { path, refusal: NextResponse.json({ error: "not-found" }, { status: 404 }) };
+    return { path, type: undefined, refusal: notFound };
   }
 
   const url = new URL(request.url);
   const expires = Number(url.searchParams.get("exp"));
   const signature = url.searchParams.get("sig") ?? "";
-  const valid = await verifyLocalLink(intent, path, expires, signature, authSecret());
+  // An upload's type is part of what was signed; a read carries none.
+  const type = intent === "upload" ? (url.searchParams.get("type") ?? "") : undefined;
+  const valid = await verifyLocalLink(intent, path, expires, signature, authSecret(), type);
   if (!valid) {
-    return { path, refusal: NextResponse.json({ error: "expired" }, { status: 403 }) };
+    return { path, type, refusal: NextResponse.json({ error: "expired" }, { status: 403 }) };
   }
 
-  return { path, refusal: null };
+  return { path, type, refusal: null };
 }
 
 function fileNameOf(path: string): string {

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
+import { fixedId } from "@/lib/id";
 import { isRefused } from "@/lib/result";
 import { tenantContext } from "@/server/auth/tenant";
 import type { Connection, Transaction } from "@/server/db/client";
@@ -8,12 +9,14 @@ import { seed, seedIds } from "@/server/db/seed";
 import { memoryStorage, type MemoryStorage } from "@/server/storage/storage";
 import { connectAndMigrate, hasDatabase } from "@/server/test-support/database";
 import {
+  ABANDONED_AFTER_MS,
   confirmUpload,
   linkFor,
   MAX_ATTACHMENT_BYTES,
   removeAttachment,
   requestUpload,
   safeName,
+  sweepAbandonedUploads,
 } from "./attachments";
 
 const suite = describe.skipIf(!hasDatabase);
@@ -67,6 +70,31 @@ suite("attachments", () => {
         ...over,
       }),
     );
+
+  /** The browser's whole round: a ticket, the bytes, the confirmation. */
+  async function uploaded(
+    bytes = new Uint8Array([1, 2, 3]),
+    landed = "application/pdf",
+    over: Partial<Parameters<typeof requestUpload>[3]> = {},
+  ): Promise<{ attachmentId: string; path: string }> {
+    const ticket = await request(over);
+    if (isRefused(ticket)) throw new Error(ticket.reason);
+    const path = await pathOf(ticket.value.attachmentId);
+    await storage.put(path, bytes, landed);
+    const confirmed = await scoped((tx) =>
+      confirmUpload(tx, owner(), storage, ticket.value.attachmentId),
+    );
+    if (isRefused(confirmed)) throw new Error(confirmed.reason);
+    return { attachmentId: ticket.value.attachmentId, path };
+  }
+
+  async function pathOf(attachmentId: string): Promise<string> {
+    const [row] = await connection.db
+      .select({ path: attachments.path })
+      .from(attachments)
+      .where(eq(attachments.id, attachmentId));
+    return row!.path;
+  }
 
   it("hands out a ticket and writes a row nobody sees yet", async () => {
     const result = await request();
@@ -213,8 +241,7 @@ suite("attachments", () => {
   });
 
   it("a link the store will not sign is a refusal the route can tell apart", async () => {
-    const ticket = await request();
-    if (isRefused(ticket)) throw new Error(ticket.reason);
+    const { attachmentId } = await uploaded();
 
     const mute: MemoryStorage = {
       ...storage,
@@ -225,7 +252,7 @@ suite("attachments", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     let link;
     try {
-      link = await scoped((tx) => linkFor(tx, owner(), mute, ticket.value.attachmentId));
+      link = await scoped((tx) => linkFor(tx, owner(), mute, attachmentId));
     } finally {
       logged.mockRestore();
     }
@@ -263,17 +290,16 @@ suite("attachments", () => {
   });
 
   it("signs a link only after the workspace check, and the link expires", async () => {
-    const ticket = await request();
-    if (isRefused(ticket)) throw new Error(ticket.reason);
+    const { attachmentId } = await uploaded();
 
     const stranger = tenantContext(seedIds.projects[1]!, seedIds.user, "owner");
     const refusedLink = await scoped((tx) =>
-      linkFor(tx, stranger, storage, ticket.value.attachmentId),
+      linkFor(tx, stranger, storage, attachmentId),
     );
     expect(isRefused(refusedLink) && refusedLink.reason).toBe("not-found");
 
     const link = await scoped((tx) =>
-      linkFor(tx, owner(), storage, ticket.value.attachmentId, 60),
+      linkFor(tx, owner(), storage, attachmentId, 60),
     );
     if (isRefused(link)) throw new Error(link.reason);
 
@@ -303,6 +329,94 @@ suite("attachments", () => {
         .from(attachments)
         .where(eq(attachments.id, ticket.value.attachmentId)),
     ).toHaveLength(0);
+  });
+
+  /*
+   * The audit of 2026-09-24 (ADR 0006). The type was checked only as declared:
+   * a ticket asked for as a PNG took an SVG, confirmation never compared, and
+   * the store served it inline from its own origin. Uploads nobody confirmed
+   * were never measured, never removed, and still signed a link.
+   */
+
+  it("takes away bytes that are not the type the ticket was asked for", async () => {
+    const ticket = await request({ mime: "image/png", name: "planta.png" });
+    if (isRefused(ticket)) throw new Error(ticket.reason);
+    const path = await pathOf(ticket.value.attachmentId);
+    const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+    await storage.put(path, svg, "image/svg+xml");
+
+    const confirmed = await scoped((tx) =>
+      confirmUpload(tx, owner(), storage, ticket.value.attachmentId),
+    );
+
+    expect(isRefused(confirmed) && confirmed.reason).toBe("unsupported-type");
+    expect(storage.objects.has(path)).toBe(false);
+    expect(
+      await connection.db.select().from(attachments).where(eq(attachments.id, ticket.value.attachmentId)),
+    ).toHaveLength(0);
+  });
+
+  it("keeps a type that differs from the declaration only in its parameters", async () => {
+    const { attachmentId } = await uploaded(
+      new TextEncoder().encode("a,b\n1,2\n"),
+      "text/csv; charset=UTF-8",
+      { mime: "text/csv", name: "orcamento.csv" },
+    );
+    const [row] = await connection.db.select().from(attachments).where(eq(attachments.id, attachmentId));
+    expect(row?.status).toBe("stored");
+  });
+
+  it("signs no link for an upload nobody confirmed", async () => {
+    const ticket = await request();
+    if (isRefused(ticket)) throw new Error(ticket.reason);
+    await storage.put(await pathOf(ticket.value.attachmentId), new Uint8Array([1]), "application/pdf");
+
+    const link = await scoped((tx) => linkFor(tx, owner(), storage, ticket.value.attachmentId));
+    expect(isRefused(link) && link.reason).toBe("not-found");
+  });
+
+  it("sweeps away an upload nobody confirmed, and leaves a recent one and a kept one", async () => {
+    const abandoned = await request({ name: "esquecido.pdf" });
+    const recent = await request({ name: "a-caminho.pdf" });
+    if (isRefused(abandoned) || isRefused(recent)) throw new Error("expected tickets");
+    const kept = await uploaded();
+    const abandonedPath = await pathOf(abandoned.value.attachmentId);
+    await storage.put(abandonedPath, new Uint8Array(1024), "application/x-msdownload");
+    await storage.put(await pathOf(recent.value.attachmentId), new Uint8Array([1]), "application/pdf");
+
+    const now = new Date();
+    await connection.db
+      .update(attachments)
+      .set({ createdAt: new Date(now.getTime() - ABANDONED_AFTER_MS - 60_000) })
+      .where(eq(attachments.id, abandoned.value.attachmentId));
+    // A kept file is never swept, however old.
+    await connection.db
+      .update(attachments)
+      .set({ createdAt: new Date(now.getTime() - 30 * 86_400_000) })
+      .where(eq(attachments.id, kept.attachmentId));
+
+    const result = await sweepAbandonedUploads(connection.db, storage, now);
+
+    expect(result).toStrictEqual({ swept: 1, failed: 0 });
+    expect(storage.objects.has(abandonedPath)).toBe(false);
+    const left = await connection.db.select({ id: attachments.id }).from(attachments);
+    expect(left.map((row) => row.id).sort()).toStrictEqual(
+      [recent.value.attachmentId, kept.attachmentId].sort(),
+    );
+  });
+
+  it("lets only whoever sent a file, or a manager, take it away", async () => {
+    const { attachmentId, path } = await uploaded();
+    const colleague = tenantContext(seedIds.workspace, fixedId("user", 7), "member");
+    const manager = tenantContext(seedIds.workspace, fixedId("user", 8), "manager");
+
+    const byColleague = await scoped((tx) => removeAttachment(tx, colleague, storage, attachmentId));
+    expect(isRefused(byColleague) && byColleague.reason).toBe("forbidden");
+    expect(storage.objects.has(path)).toBe(true);
+
+    const byManager = await scoped((tx) => removeAttachment(tx, manager, storage, attachmentId));
+    expect(isRefused(byManager)).toBe(false);
+    expect(storage.objects.has(path)).toBe(false);
   });
 });
 

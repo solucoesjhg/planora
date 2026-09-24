@@ -38,9 +38,9 @@ export function localStorageAdapter(
     bucket,
 
     async upload(path, mime): Promise<UploadTicket> {
-      const link = await signPath("upload", path, 15 * 60, secret);
+      const link = await signPath("upload", path, 15 * 60, secret, mime);
       return {
-        url: linkUrl(baseUrl, path, link.expires, link.signature),
+        url: linkUrl(baseUrl, path, link.expires, link.signature, mime),
         method: "PUT",
         headers: { "content-type": mime },
         expiresAt: new Date(link.expires * 1000),
@@ -90,8 +90,21 @@ export async function verifyLocalLink(
   expires: number,
   signature: string,
   secret: string,
+  type?: string,
 ): Promise<boolean> {
-  return verifyPath(intent, path, { expires, signature }, secret);
+  return verifyPath(intent, path, { expires, signature }, secret, new Date(), type);
+}
+
+/** Whether something already sits at this path. */
+export async function localObjectExists(path: string): Promise<boolean> {
+  const file = resolve(path);
+  if (!file) return false;
+  try {
+    await stat(/*turbopackIgnore: true*/ file);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function writeLocalObject(
@@ -155,8 +168,10 @@ function linkUrl(
   path: string,
   expires: number,
   signature: string,
+  type?: string,
 ): string {
-  const query = `exp=${expires}&sig=${signature}`;
+  const typed = type === undefined ? "" : `&type=${encodeURIComponent(type)}`;
+  const query = `exp=${expires}&sig=${signature}${typed}`;
   const relative = `/api/files/${path.split("/").map(encodeURIComponent).join("/")}?${query}`;
   return baseUrl ? new URL(relative, baseUrl).toString() : relative;
 }

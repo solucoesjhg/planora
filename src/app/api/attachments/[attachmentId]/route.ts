@@ -1,8 +1,11 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { isId } from "@/lib/id";
 import { isRefused } from "@/lib/result";
 import { currentSession } from "@/server/auth/dal";
 import { withTenant, withUser } from "@/server/db/client";
 import { linkFor } from "@/server/modules/tasks/attachments";
+import { WORKSPACE_COOKIE } from "@/server/modules/workspaces/cookie";
 import { resolveTenantContext } from "@/server/modules/workspaces/repository";
 import { getStorage } from "@/server/storage";
 
@@ -25,11 +28,18 @@ export async function GET(
   context: { params: Promise<{ attachmentId: string }> },
 ): Promise<Response> {
   const { attachmentId } = await context.params;
+  // Postgres answers a malformed uuid with an error, not an empty result.
+  if (!isId(attachmentId)) return NextResponse.json({ error: "not-found" }, { status: 404 });
 
   const session = await currentSession();
   if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const tenant = await withUser(session.userId, (tx) =>
+  // The workspace this browser is looking at, as every page reads it: with only
+  // the first membership, a file in a second workspace was a 404 to its own
+  // members. A cookie naming somewhere they do not belong resolves to nothing.
+  const chosen = (await cookies()).get(WORKSPACE_COOKIE)?.value;
+  const tenant = await withUser(session.userId, async (tx) =>
+    (chosen ? await resolveTenantContext(tx, session.userId, chosen) : null) ??
     resolveTenantContext(tx, session.userId),
   );
   if (!tenant) return NextResponse.json({ error: "not-found" }, { status: 404 });

@@ -292,12 +292,26 @@ for tables still to come as well. The catalog test now requires it, and a role
 granted everything on the four, standing in for `anon`, reads and writes
 nothing.
 
+**An attachment is what the store holds (2026-09-24).** The fourth repair.
+`confirmUpload` measured the size of what landed and never its type, which the
+store takes from the upload's own `Content-Type`: a ticket asked for as a PNG
+took an SVG and Supabase served it inline. ADR 0006 moves the list and the
+limit into `domain/attachments`, where `landedAsDeclared` decides; what is not
+the declared type is taken out of the store like an oversized file. `linkFor`
+signs only `stored` rows. The Supabase adapter, which already refused a public
+bucket, now refuses to issue an upload ticket until the bucket itself restricts
+types to the list and size to 25 MB (`DEPLOY.md` §1.2), so the bytes are
+refused at the door. The clock's tick sweeps `pending` rows older than three
+hours, object first. The filesystem store signs the upload's type, stores that
+rather than the header, and refuses a second upload to a path. Removing a file
+is its uploader's or a manager's. `/api/attachments` answers a malformed id
+with a 404 and reads the workspace the browser chose.
+
 ## Next
 
 - The rest of the security audit, in this order — each its own pull request:
-  attachments, the pre-registered account, the ESLint boundaries and
-  `server-only`, then the barrier's per-command policies and the membership
-  foreign keys. The list is below, under **What the security
+  the pre-registered account, the ESLint boundaries and `server-only`, then
+  the barrier's per-command policies and the membership foreign keys. The list is below, under **What the security
   audit found**.
 - Phase 11 · Launch readiness — a preview per pull request, error tracking, the
   performance budget, the accessibility pass, and E2E in CI (§7).
@@ -362,16 +376,21 @@ session token and password hash through the Data API. The API logs showed no
 request; `public` was taken out of the exposed schemas and the grants revoked
 by hand the same day, and migration `0012` makes both permanent.
 
+**Repaired** (ADR 0006): attachments were checked against the type the browser
+declared, never the one that landed, so an SVG sent on a ticket for a PNG was
+kept and served inline from the store's origin; unconfirmed uploads were never
+cleaned up and still signed a link; any member could delete anyone's file. Now
+what landed is kept only when it is the declared type and on the list, a link
+is signed only for what was kept, the bucket must enforce the list and 25 MB
+before a ticket is issued, the clock sweeps uploads nobody confirmed, and a
+file is removed by whoever sent it or by a manager.
+
 **Open, most serious first:**
 
 - **A pre-registered address can be taken.** Somebody signs up with another
   person's address and a password of their own; when the owner of the address
   later signs up, Better Auth answers "ok" and sends nothing, and "Reenviar"
   sends a link that verifies the first account — the stranger's password.
-- **Attachments trust the declared type.** `confirmUpload` never compares what
-  landed with what was declared, the bucket has no type or size limit, and an
-  SVG is served inline from the storage origin. Unconfirmed uploads are never
-  cleaned up and are still served.
 - **The ESLint boundaries are not enforced.** The domain rule is overwritten by
   the lane rule (flat config replaces a rule's options), so `domain/` may
   import anything; the lane rule misses a relative import; nothing stops a
@@ -388,7 +407,7 @@ by hand the same day, and migration `0012` makes both permanent.
   `outbox_events.dedupe_key` is unique across tenants. `planora.user_id` is
   believed, not resolved.
 - Lower: formula injection in the CSV export; a deleted project still readable
-  and writable by id; any member may delete anyone's attachment; comments
+  and writable by id; comments
   signed by an automation editable by the rule's author; the account name
   (unbounded) in email subjects; response timing on sign-up and reset;
   third-party and SQL error text reaching the client; expired invitations
@@ -396,9 +415,9 @@ by hand the same day, and migration `0012` makes both permanent.
   publishing Postgres and Mailpit on every interface with the default
   password; CI without a `permissions` block or pinned actions.
 
-Not security, found on the way: `/api/attachments` ignores the chosen
-workspace; deleting a workspace leaves its files in the bucket; a date like
-`2026-99-99` passes validation and becomes a 500.
+Not security, found on the way: deleting a workspace leaves its files in the
+bucket; a date like `2026-99-99` passes validation and becomes a 500.
+(`/api/attachments` ignoring the chosen workspace was repaired with ADR 0006.)
 
 ### What to verify by hand when the audit ends
 
@@ -430,7 +449,9 @@ SQL Editor and was dry-run against a local database.
   `select n.workspace_id, n.user_id, count(*) from notifications n left join workspace_members m on m.workspace_id = n.workspace_id and m.user_id = n.user_id where m.id is null group by 1, 2;`
 - [ ] **Accounts never verified** — the raw material of the pre-registered
   address: `select count(*) as unverified, min(created_at) as oldest from users where email_verified = false;`
-- [ ] **Uploads never confirmed**, which nothing cleans up:
+- [ ] **Uploads never confirmed** (the clock sweeps them since ADR 0006 —
+  this shows what had piled up before, and should read zero a few hours after
+  that deploy):
   `select count(*) as pending, pg_size_pretty(coalesce(sum(size), 0)) as declared, min(created_at) as oldest from attachments where status = 'pending';`
   The declared size is what the browser claimed; the bucket's own usage
   (Storage in the dashboard) is what landed.
@@ -444,8 +465,8 @@ SQL Editor and was dry-run against a local database.
 - [x] Supabase → **Data API**: `public` taken out of the exposed schemas
   (2026-09-24).
 - [ ] Supabase → **Storage → the bucket**: allowed MIME types set to the
-  attachment list and a 25 MB size limit (arrives with the attachments pull
-  request, `DEPLOY.md` §1.2).
+  attachment list and a 25 MB size limit (`DEPLOY.md` §1.2). Since ADR 0006 no
+  upload ticket is issued until they are — set them before that deploy.
 - [ ] Vercel → **Environment Variables**: `APP_DATABASE_URL` present in
   Production; `CRON_SECRET` at least 32 characters; no production secret
   scoped to Preview.

@@ -1,6 +1,12 @@
 import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
+import {
+  ALLOWED_MIME_TYPES,
+  MAX_ATTACHMENT_BYTES,
+  bucketProblems,
+  type BucketSettings,
+} from "@/domain/attachments";
 import type { Storage, StoredMetadata, UploadTicket } from "./storage";
 
 /**
@@ -60,27 +66,51 @@ export function supabaseStorageAdapter(
    * checkbox gets flipped by whoever is trying to make an upload work. So the
    * bucket is asked, once per process, before the first ticket or link — and
    * asked again after a refusal, so flipping it back needs no redeploy.
+   *
+   * An upload asks one more thing (ADR 0006): that the bucket refuses, on its
+   * own, any type or size the application would not keep. The browser sends
+   * its bytes straight to the store, so the bucket is the only thing between
+   * a ticket and whatever arrives on it. A link to a file already kept does
+   * not wait on that — only a new upload does.
    */
-  let known: Promise<void> | null = null;
-  const ensurePrivate = (): Promise<void> => {
+  let known: Promise<BucketSettings> | null = null;
+  const describe = (): Promise<BucketSettings> => {
     known ??= describeBucket().catch((error: unknown) => {
       known = null;
       throw error;
     });
     return known;
   };
-  async function describeBucket(): Promise<void> {
-    const { data, error } = await client().storage.getBucket(bucket);
-    if (error || !data) {
-      throw new Error(`storage could not describe bucket "${bucket}": ${error?.message}`);
-    }
-    if (data.public) {
+  async function ready(purpose: "upload" | "read"): Promise<void> {
+    const problems = bucketProblems(await describe());
+    if (problems.includes("public")) {
+      known = null;
       throw new Error(
         `bucket "${bucket}" is public; it must be private — every file in it can be ` +
           "read by anyone with its path, for as long as it exists. Supabase → " +
           "Storage → the bucket → Edit → Public bucket off (docs/DEPLOY.md, 1.2).",
       );
     }
+    if (purpose === "upload" && problems.length > 0) {
+      known = null;
+      throw new Error(
+        `bucket "${bucket}" accepts more than the application keeps (${problems.join(", ")}). ` +
+          "Supabase → Storage → the bucket → Edit: restrict the file size to " +
+          `${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB and the allowed MIME types to ` +
+          `${ALLOWED_MIME_TYPES.join(", ")} (docs/DEPLOY.md, 1.2).`,
+      );
+    }
+  }
+  async function describeBucket(): Promise<BucketSettings> {
+    const { data, error } = await client().storage.getBucket(bucket);
+    if (error || !data) {
+      throw new Error(`storage could not describe bucket "${bucket}": ${error?.message}`);
+    }
+    return {
+      public: data.public,
+      fileSizeLimit: typeof data.file_size_limit === "number" ? data.file_size_limit : null,
+      allowedMimeTypes: data.allowed_mime_types ?? null,
+    };
   }
 
   return {
@@ -88,7 +118,7 @@ export function supabaseStorageAdapter(
     bucket,
 
     async upload(path, mime): Promise<UploadTicket> {
-      await ensurePrivate();
+      await ready("upload");
       const { data, error } = await files().createSignedUploadUrl(path, {
         upsert: false,
       });
@@ -127,7 +157,7 @@ export function supabaseStorageAdapter(
     },
 
     async signedUrl(path, seconds) {
-      await ensurePrivate();
+      await ready("read");
       const { data, error } = await files().createSignedUrl(path, seconds);
       if (error || !data) throw new Error(`storage refused a link: ${error?.message}`);
       return data.signedUrl;
