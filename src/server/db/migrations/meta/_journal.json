@@ -85,6 +85,13 @@
       "when": 1790286444197,
       "tag": "0011_act_allowance",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790288989395,
+      "tag": "0012_identity_tables_closed",
+      "breakpoints": true
     }
   ]
 }

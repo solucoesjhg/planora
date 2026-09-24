@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { and, eq, sql } from "drizzle-orm";
+import { TransactionRollbackError, and, eq, sql } from "drizzle-orm";
 import { newId } from "@/lib/id";
 import { isRefused } from "@/lib/result";
 import { tenantContext } from "@/server/auth/tenant";
 import { hashToken } from "@/lib/token";
 import {
   clients,
+  sessions,
   users,
   workspaceInvitations,
   workspaceMembers,
@@ -19,7 +20,12 @@ import {
   connectAsApp,
   hasDatabase,
 } from "@/server/test-support/database";
-import { scopedTransaction, type Connection, type Database } from "./client";
+import {
+  scopedTransaction,
+  type Connection,
+  type Database,
+  type Transaction,
+} from "./client";
 
 /**
  * The barrier (DEVELOPMENT_PLAN.md §7 Phase 10 · ADR 0002).
@@ -346,14 +352,16 @@ suite("row-level security, as the application role", () => {
    * unnoticed. A table added without a policy turns this red.
    */
   it("leaves no table in public without FORCE row level security and a policy", async () => {
-    const exempt = ["accounts", "rate_limits", "sessions", "verifications"];
+    const identity = ["accounts", "rate_limits", "sessions", "verifications"];
 
     const rows = await owner.db.execute<{
       table_name: string;
+      enabled: boolean;
       forced: boolean;
       policies: number;
     }>(sql`
       select c.relname as table_name,
+             c.relrowsecurity as enabled,
              c.relrowsecurity and c.relforcerowsecurity as forced,
              (select count(*) from pg_policies p
                where p.schemaname = 'public' and p.tablename = c.relname)::int as policies
@@ -364,13 +372,97 @@ suite("row-level security, as the application role", () => {
     `);
 
     const unguarded = rows
-      .filter((row) => !exempt.includes(row.table_name))
+      .filter((row) => !identity.includes(row.table_name))
       .filter((row) => !row.forced || row.policies === 0)
       .map((row) => row.table_name);
 
     expect(unguarded).toEqual([]);
     // And the exemptions are the four identity tables, not a list that grew.
-    expect(rows.length - exempt.length).toBe(21);
+    expect(rows.length - identity.length).toBe(21);
+
+    // Exempt from the tenant policy, not from the barrier (ADR 0005): enabled
+    // with no policy, so only their owner — Better Auth — reads them, and not
+    // forced, because that owner is what Better Auth connects as.
+    expect(
+      rows
+        .filter((row) => identity.includes(row.table_name))
+        .map(({ table_name, enabled, forced, policies }) => ({ table_name, enabled, forced, policies })),
+    ).toStrictEqual(
+      identity.map((table_name) => ({ table_name, enabled: true, forced: false, policies: 0 })),
+    );
+  });
+
+  /**
+   * What production answered on 2026-09-24: Supabase's `anon` held every
+   * privilege on the identity tables, and they had no RLS, so the project's
+   * anon key would have read every session token. A role made for the
+   * purpose stands in for it here — every grant, and still nothing (ADR 0005).
+   */
+  describe("a role holding every grant on the identity tables", () => {
+    const token = "a-session-token-nobody-but-better-auth-should-read";
+
+    beforeEach(async () => {
+      await owner.db.insert(sessions).values({
+        userId: seedIds.user,
+        token,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      });
+    });
+
+    it("reads none of them", async () => {
+      const seen = await asRoleWithEveryGrant(async (tx) => ({
+        sessions: await tx.execute(sql`select token from public.sessions`),
+        accounts: await tx.execute(sql`select id from public.accounts`),
+        verifications: await tx.execute(sql`select id from public.verifications`),
+        rateLimits: await tx.execute(sql`select id from public.rate_limits`),
+      }));
+
+      expect(seen.sessions).toHaveLength(0);
+      expect(seen.accounts).toHaveLength(0);
+      expect(seen.verifications).toHaveLength(0);
+      expect(seen.rateLimits).toHaveLength(0);
+      // The negative control: the owner still sees the row it was hidden from.
+      const [row] = await owner.db.select({ token: sessions.token }).from(sessions);
+      expect(row?.token).toBe(token);
+    });
+
+    it("writes none of them, and rewrites nothing", async () => {
+      const refusal = await refusalOf(() =>
+        asRoleWithEveryGrant((tx) =>
+          tx.execute(sql`insert into public.sessions (id, user_id, token, expires_at)
+            values (${newId()}, ${seedIds.user}, 'forged', now() + interval '1 day')`),
+        ),
+      );
+      expect(refusal.code).toBe(ROW_LEVEL_SECURITY);
+
+      const touched = await asRoleWithEveryGrant(async (tx) => ({
+        updated: await tx.execute(sql`update public.sessions set expires_at = now() + interval '1 year' returning id`),
+        deleted: await tx.execute(sql`delete from public.sessions returning id`),
+      }));
+      expect(touched.updated).toHaveLength(0);
+      expect(touched.deleted).toHaveLength(0);
+    });
+
+    /**
+     * A throwaway role, granted everything Supabase's defaults grant, for one
+     * transaction that is always rolled back — the role included, since
+     * `CREATE ROLE` is transactional.
+     */
+    async function asRoleWithEveryGrant<T>(run: (tx: Transaction) => Promise<T>): Promise<T> {
+      let result: { value: T } | null = null;
+      try {
+        await owner.db.transaction(async (tx) => {
+          await tx.execute(sql`create role planora_data_api_stand_in nologin`);
+          await tx.execute(sql`grant all on public.sessions, public.accounts, public.verifications, public.rate_limits to planora_data_api_stand_in`);
+          await tx.execute(sql`set local role planora_data_api_stand_in`);
+          result = { value: await run(tx) };
+          tx.rollback();
+        });
+      } catch (error) {
+        if (!(error instanceof TransactionRollbackError) || !result) throw error;
+      }
+      return (result as { value: T } | null)!.value;
+    }
   });
 
   /**
