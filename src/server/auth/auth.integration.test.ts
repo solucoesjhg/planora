@@ -1,6 +1,8 @@
 import { tenantContext, type Role } from "@/server/auth/tenant";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
+import { signJWT } from "better-auth/crypto";
+import { CONFIRMATION_HEADER } from "@/lib/confirmation-link";
 import { isRefused } from "@/lib/result";
 import { createAuth } from "@/server/auth/config";
 import type { Connection } from "@/server/db/client";
@@ -93,29 +95,37 @@ suite("signing up", () => {
   });
 
   /**
-   * The verification link confirms an address and creates no session
-   * (`config.ts`). It is a GET that changes state, which is what a mail
-   * scanner or a prefetching client follows before the person does — and
-   * whichever arrived first used to be handed the account.
+   * The link confirms nothing on its own (ADR 0007): it leads to the login
+   * form, and signing in there with the account's password is what confirms
+   * the address. A link sent before that decision still points at Better
+   * Auth's endpoint, which now sends it to the same form — confirming nobody
+   * and signing nobody in on the way, whatever a mail scanner follows.
    */
-  it("confirms the address and signs nobody in", async () => {
+  it("confirms nothing when Better Auth's own link is followed", async () => {
     await auth.api.signUpEmail({
       body: { name: "Ana", email: "ana@example.com", password },
     });
-    const link = verificationLink();
+    const token = confirmationToken();
 
-    const response = await auth.handler(new Request(link, { redirect: "manual" }));
+    const response = await auth.handler(
+      new Request(
+        `http://localhost:3000/api/auth/verify-email?token=${token}&callbackURL=%2Flogin%3Fverificado%3D1`,
+        { redirect: "manual" },
+      ),
+    );
 
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(`/login?confirmar=${token}`);
     const [user] = await connection.db
       .select()
       .from(users)
       .where(eq(users.email, "ana@example.com"));
-    expect(user?.emailVerified).toBe(true);
+    expect(user?.emailVerified).toBe(false);
     expect(await connection.db.select().from(sessions)).toHaveLength(0);
     expect(response.headers.get("set-cookie")).toBeNull();
   });
 
-  it("sends the link to the login form, which says the address is confirmed", async () => {
+  it("sends the link to the login form, carrying the token", async () => {
     await auth.api.signUpEmail({
       body: {
         name: "Ana",
@@ -126,10 +136,11 @@ suite("signing up", () => {
       },
     });
 
-    const callback = new URL(verificationLink()).searchParams.get("callbackURL");
+    const link = new URL(confirmationLink());
 
     // No `next`: the login form already goes to the dashboard.
-    expect(callback).toBe("/login?verificado=1");
+    expect(link.origin + link.pathname).toBe("http://localhost:3000/login");
+    expect([...link.searchParams.keys()]).toEqual(["confirmar"]);
   });
 
   /**
@@ -147,37 +158,9 @@ suite("signing up", () => {
       },
     });
 
-    const callback = new URL(verificationLink()).searchParams.get("callbackURL");
+    const link = new URL(confirmationLink());
 
-    expect(callback).toBe("/login?verificado=1&next=%2Finvitations%2Fabc");
-  });
-
-  /**
-   * Better Auth appends its error to the callback rather than replacing it, so
-   * a link that failed arrives at the same login form that announces success.
-   * The form reads the error first; this pins the shape it reads.
-   */
-  it("carries the reason when the link did not work", async () => {
-    await auth.api.signUpEmail({
-      body: { name: "Ana", email: "ana@example.com", password, callbackURL: "/dashboard" },
-    });
-    const link = new URL(verificationLink());
-    link.searchParams.set("token", "not-a-token");
-
-    const response = await auth.handler(
-      new Request(link.toString(), { redirect: "manual" }),
-    );
-    const landed = new URL(response.headers.get("location") ?? "", "http://localhost:3000");
-
-    expect(landed.pathname).toBe("/login");
-    expect(landed.searchParams.get("error")).toBe("INVALID_TOKEN");
-    // And nobody was confirmed or signed in on the way.
-    const [user] = await connection.db
-      .select()
-      .from(users)
-      .where(eq(users.email, "ana@example.com"));
-    expect(user?.emailVerified).toBe(false);
-    expect(await connection.db.select().from(sessions)).toHaveLength(0);
+    expect(link.searchParams.get("next")).toBe("/invitations/abc");
   });
 
   /**
@@ -190,17 +173,23 @@ suite("signing up", () => {
       body: { name: "Ana", email: "ana@example.com", password },
     });
 
-    const callback = new URL(verificationLink()).searchParams.get("callbackURL");
+    const link = new URL(confirmationLink());
 
-    expect(callback).toBe("/login?verificado=1");
+    expect(link.searchParams.get("next")).toBeNull();
   });
 
   /** The link out of the message the memory sender collected. */
-  function verificationLink(): string {
+  function confirmationLink(): string {
     const message = sender.outbox.at(-1);
-    const link = (message?.text ?? "").match(/https?:\/\/\S*verify-email\S*/)?.[0];
-    if (!link) throw new Error("no verification link in the message");
+    const link = (message?.text ?? "").match(/https?:\/\/\S*\/login\?confirmar=\S*/)?.[0];
+    if (!link) throw new Error("no confirmation link in the message");
     return link.replaceAll("&amp;", "&");
+  }
+
+  function confirmationToken(): string {
+    const token = new URL(confirmationLink()).searchParams.get("confirmar");
+    if (!token) throw new Error("no token in the confirmation link");
+    return token;
   }
 
   it("counts requests in the database and refuses the sixth signup in a minute", async () => {
@@ -294,10 +283,10 @@ suite("signing up", () => {
   });
 
   it("does not duplicate the account or the workspace on a repeated signup", async () => {
-    // Better Auth reuses an unverified account and re-sends the verification
-    // rather than erroring, which is also what keeps signup from telling a
-    // stranger which addresses exist. What matters here is that our own hook
-    // does not hand the same person a second workspace.
+    // Better Auth answers a repeated sign-up exactly as a first one, which is
+    // what keeps sign-up from telling a stranger which addresses exist. What
+    // matters here is that our own hook does not hand the same person a second
+    // workspace.
     await auth.api.signUpEmail({
       body: { name: "Ana", email: "ana@example.com", password },
     });
@@ -313,6 +302,208 @@ suite("signing up", () => {
 
     const memberships = await membershipsOf(connection.db, rows[0]!.id);
     expect(memberships).toHaveLength(1);
+  });
+
+  /**
+   * It used to send nothing at all, and the owner of the address waited for a
+   * message that never came (ADR 0007). The answer to the request is the same
+   * as for a new address; the mailbox is where the difference is told.
+   */
+  it("tells the mailbox when the address already has an account", async () => {
+    await auth.api.signUpEmail({
+      body: { name: "Ana", email: "ana@example.com", password },
+    });
+    await connection.db
+      .update(users)
+      .set({ emailVerified: true })
+      .where(eq(users.email, "ana@example.com"));
+    sender.outbox.length = 0;
+
+    const again = await auth.api.signUpEmail({
+      body: { name: "Ana", email: "ana@example.com", password: "outra frase qualquer" },
+    });
+
+    expect(again.token).toBeNull();
+    expect(sender.outbox).toHaveLength(1);
+    expect(sender.outbox[0]?.to).toBe("ana@example.com");
+    expect(sender.outbox[0]?.subject).toBe("Este e-mail já tem uma conta no Planora");
+    expect(sender.outbox[0]?.text).toContain("http://localhost:3000/login");
+    // It greets nobody: the name on an account may be a stranger's choice.
+    expect(sender.outbox[0]?.text).not.toContain("Ana");
+  });
+});
+
+/**
+ * ADR 0007. An address is confirmed by whoever holds both its mailbox and the
+ * account's password: the link carries a token to the login form, and signing
+ * in with the token and the password is what confirms it.
+ */
+suite("confirming an address", () => {
+  const secret = "test-secret-test-secret-test-secret-32";
+  const ana = "ana@example.com";
+  const anasPassword = "trilha molhada de barro";
+  const strangersPassword = "senha que so o estranho sabe";
+
+  let connection: Connection;
+  let sender: ReturnType<typeof memorySender>;
+  let auth: ReturnType<typeof createAuth>;
+
+  beforeAll(async () => {
+    connection = await connectAndMigrate();
+  });
+
+  afterAll(async () => {
+    await connection.close();
+  });
+
+  beforeEach(async () => {
+    await resetDatabase(connection.db);
+    sender = memorySender();
+    auth = createAuth({
+      database: connection.db,
+      sender,
+      baseUrl: "http://localhost:3000",
+      secret,
+      checkBreaches: false,
+    });
+  });
+
+  const signUp = (email: string, password: string, name = "Ana") =>
+    auth.api.signUpEmail({ body: { name, email, password } });
+
+  const signIn = (email: string, password: string, token?: string) =>
+    auth.handler(
+      new Request("http://localhost:3000/api/auth/sign-in/email", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { [CONFIRMATION_HEADER]: token } : {}),
+        },
+        body: JSON.stringify({ email, password }),
+      }),
+    );
+
+  /** The token out of the last message sent to an address. */
+  function tokenSentTo(email: string): string {
+    const message = sender.outbox.filter((sent) => sent.to === email).at(-1);
+    const token = (message?.text ?? "").match(/\/login\?confirmar=([^&\s]+)/)?.[1];
+    if (!token) throw new Error(`no confirmation link was sent to ${email}`);
+    return token;
+  }
+
+  async function verified(email: string): Promise<boolean | undefined> {
+    const [user] = await connection.db.select().from(users).where(eq(users.email, email));
+    return user?.emailVerified;
+  }
+
+  it("confirms the address when the link arrives with the account's password", async () => {
+    await signUp(ana, anasPassword);
+
+    const response = await signIn(ana, anasPassword, tokenSentTo(ana));
+
+    expect(response.status).toBe(200);
+    expect(await verified(ana)).toBe(true);
+    expect(await connection.db.select().from(sessions)).toHaveLength(1);
+  });
+
+  it("confirms nothing with a password that is not the account's", async () => {
+    await signUp(ana, anasPassword);
+
+    const response = await signIn(ana, strangersPassword, tokenSentTo(ana));
+
+    expect(response.status).toBe(401);
+    expect(await verified(ana)).toBe(false);
+    expect(await connection.db.select().from(sessions)).toHaveLength(0);
+  });
+
+  it("confirms only the address the link was sent to", async () => {
+    await signUp(ana, anasPassword);
+    await signUp("bia@example.com", anasPassword, "Bia");
+
+    const response = await signIn("bia@example.com", anasPassword, tokenSentTo(ana));
+
+    expect(response.status).toBe(403);
+    expect(await verified("bia@example.com")).toBe(false);
+    expect(await verified(ana)).toBe(false);
+  });
+
+  it("confirms nothing with a token that is forged or has expired", async () => {
+    await signUp(ana, anasPassword);
+
+    const forged = await signJWT({ email: ana }, "another-secret-another-secret-32", 900);
+    const expired = await signJWT({ email: ana }, secret, -60);
+    // A change of address is a different kind of token, even when it is ours.
+    const changeOfAddress = await signJWT(
+      { email: ana, updateTo: "outro@example.com" },
+      secret,
+      900,
+    );
+
+    for (const token of [forged, expired, changeOfAddress, "not-a-token"]) {
+      expect((await signIn(ana, anasPassword, token)).status).toBe(403);
+    }
+    expect(await verified(ana)).toBe(false);
+  });
+
+  /**
+   * An expired link is not a dead end: the right password asks for a fresh
+   * one. The wrong password asks for nothing, so a stranger cannot fill
+   * somebody's mailbox from the login form.
+   */
+  it("sends a fresh link to an unconfirmed account's owner, and to nobody else", async () => {
+    await signUp(ana, anasPassword);
+    sender.outbox.length = 0;
+
+    expect((await signIn(ana, strangersPassword)).status).toBe(401);
+    expect(sender.outbox).toHaveLength(0);
+
+    expect((await signIn(ana, anasPassword)).status).toBe(403);
+    expect(sender.outbox).toHaveLength(1);
+    expect((await signIn(ana, anasPassword, tokenSentTo(ana))).status).toBe(200);
+  });
+
+  /**
+   * The audit of 2026-09-24: somebody signs up first with Ana's address and a
+   * password of their own. When Ana signs up she is answered as anyone is,
+   * and "Reenviar" sends her a link — to the stranger's account. Opening it
+   * used to confirm that account, stranger's password and all.
+   */
+  it("never lets in the stranger who signed up first with somebody's address", async () => {
+    await signUp(ana, strangersPassword, "Visitante");
+
+    // Ana signs up herself, and is told — by email, not by the answer.
+    const answer = await signUp(ana, anasPassword);
+    expect(answer.token).toBeNull();
+    expect(sender.outbox.at(-1)?.subject).toBe("Este e-mail já tem uma conta no Planora");
+
+    // "Reenviar", and the link, opened with her own password: nothing.
+    await auth.api.sendVerificationEmail({ body: { email: ana } });
+    const token = tokenSentTo(ana);
+    expect((await signIn(ana, anasPassword, token)).status).toBe(401);
+    expect(await verified(ana)).toBe(false);
+
+    // Nor with the old endpoint, which a scanner might follow first.
+    await auth.handler(
+      new Request(`http://localhost:3000/api/auth/verify-email?token=${token}`, {
+        redirect: "manual",
+      }),
+    );
+    expect(await verified(ana)).toBe(false);
+
+    // The stranger holds a password and no mailbox: still refused.
+    expect((await signIn(ana, strangersPassword)).status).toBe(403);
+    expect(await connection.db.select().from(sessions)).toHaveLength(0);
+
+    // Ana takes the address back from the mailbox, and the stranger's
+    // password goes with it.
+    await auth.api.requestPasswordReset({ body: { email: ana, redirectTo: "/reset-password" } });
+    const reset = sender.outbox.at(-1)?.text.match(/\/reset-password\/([^?\s]+)\?/)?.[1];
+    if (!reset) throw new Error("no reset link in the message");
+    await auth.api.resetPassword({ body: { token: reset, newPassword: anasPassword } });
+
+    expect(await verified(ana)).toBe(true);
+    expect((await signIn(ana, strangersPassword)).status).toBe(401);
+    expect((await signIn(ana, anasPassword)).status).toBe(200);
   });
 });
 
@@ -798,6 +989,22 @@ suite("recovering a password", () => {
     expect(await connection.db.select().from(sessions)).toHaveLength(0);
 
     expect((await signIn(password)).status).toBe(401);
+    expect((await signIn(newPassword)).status).toBe(200);
+  });
+
+  /**
+   * The reset link was delivered to the mailbox, and the password is the one
+   * its holder just chose: everything confirming an address asks for
+   * (ADR 0007).
+   */
+  it("confirms an address nobody had confirmed", async () => {
+    await connection.db.update(users).set({ emailVerified: false }).where(eq(users.email, email));
+
+    const token = await requestToken();
+    expect((await reset(token, newPassword)).status).toBe(200);
+
+    const [user] = await connection.db.select().from(users).where(eq(users.email, email));
+    expect(user?.emailVerified).toBe(true);
     expect((await signIn(newPassword)).status).toBe(200);
   });
 

@@ -7,6 +7,7 @@ import {
   submitRegistration,
   uniqueEmail,
   waitForResetLink,
+  waitForVerificationLink,
 } from "./support/account";
 
 /**
@@ -15,7 +16,6 @@ import {
  * workspace that already exists.
  */
 
-const MAILPIT = process.env.MAILPIT_URL ?? "http://127.0.0.1:8025";
 const PASSWORD = "uma-senha-bem-longa";
 
 test("signing up leads to a verified account with a workspace", async ({
@@ -32,12 +32,13 @@ test("signing up leads to a verified account with a workspace", async ({
   const verificationUrl = await waitForVerificationLink(request, email);
   await page.goto(verificationUrl);
 
-  // The link confirms the address and signs nobody in: it is a GET that a mail
-  // scanner follows before the person does, and whichever arrived first would
-  // otherwise have taken the session. So it lands on the login form, and the
-  // form says why it is there.
-  await expect(page).toHaveURL(/\/login\?verificado=1$/);
-  await expect(page.getByRole("status")).toContainText("E-mail confirmado");
+  // The link confirms nothing on its own (ADR 0007): it lands on the login
+  // form with the address filled in, and signing in there with the password
+  // chosen at sign-up is what confirms it. A mail scanner that follows the
+  // link first confirms nothing and takes no session.
+  await expect(page).toHaveURL(/\/login\?confirmar=[^&]+$/);
+  await expect(page.getByRole("status")).toContainText("para confirmar seu e-mail");
+  await expect(page.getByLabel("E-mail")).toHaveValue(email);
 
   await signIn(page, email, PASSWORD);
   await expect(page).toHaveURL(/\/dashboard$/);
@@ -73,6 +74,45 @@ test("the confirmation screen can send the message again", async ({
   }).toPass();
 });
 
+/**
+ * The link with a password that is not the account's: perhaps the person
+ * forgot it, perhaps somebody else signed up with their address first. The
+ * way out is the same, and the form names it.
+ */
+test("a confirmation link with the wrong password points at a new one", async ({
+  page,
+  request,
+}) => {
+  const email = uniqueEmail();
+  await submitRegistration(page, email, PASSWORD);
+  await page.goto(await waitForVerificationLink(request, email));
+
+  await signIn(page, email, "outra frase que nao e a dela");
+
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Esqueci minha senha" }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/login\?confirmar=/);
+});
+
+/** Signing in unconfirmed with the right password sends a fresh link. */
+test("the login form sends a new link to an address not yet confirmed", async ({
+  page,
+  request,
+}) => {
+  const email = uniqueEmail();
+  await submitRegistration(page, email, PASSWORD);
+  await expect.poll(() => messagesTo(request, email)).toBe(1);
+
+  await page.goto("/login");
+  await signIn(page, email, PASSWORD);
+
+  await expect(
+    page.getByRole("alert").filter({ hasText: "ainda não foi confirmado" }),
+  ).toBeVisible();
+  await expect.poll(() => messagesTo(request, email)).toBe(2);
+});
+
 test("the front door is the product's, not the framework's", async ({ page }) => {
   await page.goto("/");
 
@@ -90,38 +130,6 @@ test("the proxy sends a visitor to the login page", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Entrar" })).toBeVisible();
 });
 
-type MailpitList = {
-  messages: { ID: string; To: { Address: string }[] }[];
-};
-
-async function waitForVerificationLink(
-  request: import("@playwright/test").APIRequestContext,
-  email: string,
-): Promise<string> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const list = await request.get(`${MAILPIT}/api/v1/messages?limit=50`);
-    if (list.ok()) {
-      const { messages } = (await list.json()) as MailpitList;
-      const match = messages.find((message) =>
-        message.To.some((recipient) => recipient.Address === email),
-      );
-
-      if (match) {
-        const detail = await request.get(`${MAILPIT}/api/v1/message/${match.ID}`);
-        const body = (await detail.json()) as { Text?: string; HTML?: string };
-        const url = (body.Text ?? body.HTML ?? "").match(
-          /https?:\/\/[^\s"<>]+verify-email[^\s"<>]*/,
-        )?.[0];
-
-        if (url) return url.replaceAll("&amp;", "&");
-      }
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-
-  throw new Error(`no verification message arrived for ${email}`);
-}
 
 /**
  * Recovery, end to end: the link under the login form, the message in the

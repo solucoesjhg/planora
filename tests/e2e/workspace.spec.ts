@@ -98,11 +98,12 @@ test.describe("the workspace", () => {
     await fillRegistration(their, guest, { name: "Recém-chegada" });
     await their.goto(await waitForVerificationLink(request, guest));
 
-    // The link confirms the address and signs nobody in, so it lands on the
-    // login form — carrying the invitation it was on its way to, so that one
-    // sign-in continues the journey instead of ending it on a dashboard.
-    await expect(their).toHaveURL(/\/login\?verificado=1&next=%2Finvitations%2F/);
-    await expect(their.getByRole("status")).toContainText("E-mail confirmado");
+    // The link lands on the login form, where signing in confirms the
+    // address (ADR 0007) — carrying the invitation it was on its way to, so
+    // that one sign-in continues the journey instead of ending it on a
+    // dashboard.
+    await expect(their).toHaveURL(/\/login\?confirmar=[^&]+&next=%2Finvitations%2F/);
+    await expect(their.getByRole("status")).toContainText("para confirmar seu e-mail");
     await signIn(their, guest);
 
     await expect(their).toHaveURL(/\/invitations\//);

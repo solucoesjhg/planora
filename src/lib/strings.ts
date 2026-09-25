@@ -181,27 +181,27 @@ export const RATE_LIMITED =
   "Você fez isso muitas vezes seguidas. Espere um minuto e tente de novo.";
 
 /**
- * The verification link confirms an address and signs nobody in (ADR 0002's
- * sibling decision, `src/server/auth/config.ts`). It lands on the login form,
- * which owes the person an explanation for being there.
+ * The confirmation link carries a token to the login form, and signing in
+ * there with the password chosen at sign-up is what confirms the address
+ * (ADR 0007). The form owes the person a reason for asking.
  */
-export const VERIFIED_PARAM = "verificado";
+export const CONFIRMATION_PENDING =
+  "Entre com a senha que você escolheu no cadastro para confirmar seu e-mail.";
 
-export const EMAIL_VERIFIED =
-  "E-mail confirmado. Entre com sua senha para continuar.";
+export const CONFIRMATION_EXPIRED =
+  "Este link de confirmação expirou ou não vale mais. Entre com sua senha: se o e-mail ainda não estiver confirmado, enviamos outro.";
 
 /**
- * A link that did not work. Better Auth appends `error=<code>` to the callback
- * rather than replacing it, so the same page has to be able to say the
- * opposite of the line above — otherwise an expired link lands on a form
- * cheerfully announcing that the address was confirmed.
+ * What a refused sign-in says, by the code Better Auth answers with. Its own
+ * messages are in English, and "wrong password" means something else when the
+ * form is confirming an address: the password is the one this account was
+ * created with, which may not be the person's own.
  */
-export const VERIFICATION_FAILED: Record<string, string> = {
-  TOKEN_EXPIRED: "Este link de confirmação expirou. Peça outro para continuar.",
-  INVALID_TOKEN: "Este link de confirmação não vale mais. Peça outro para continuar.",
-  USER_NOT_FOUND: "Não encontramos uma conta para este link.",
-  INVALID_USER: "Este link é de outra conta. Saia e abra o link de novo.",
-};
-
-export const VERIFICATION_FAILED_FALLBACK =
-  "Não deu para confirmar o e-mail com esse link. Peça outro para continuar.";
+export const SIGN_IN_REFUSED = {
+  INVALID_EMAIL_OR_PASSWORD: "E-mail ou senha incorretos.",
+  CONFIRMATION_PASSWORD_MISMATCH:
+    "A senha não confere com a deste cadastro. Se você não lembra dela, ou não foi você quem criou a conta, use “Esqueci minha senha”: definir uma senha nova também confirma o e-mail.",
+  EMAIL_NOT_VERIFIED:
+    "Este e-mail ainda não foi confirmado. Enviamos um link novo para ele: abra-o e entre por lá.",
+  FALLBACK: "Não foi possível entrar. Tente de novo em instantes.",
+} as const;

@@ -7,23 +7,37 @@ import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { signIn } from "@/lib/auth-client";
 import { cn } from "@/lib/cn";
+import { CONFIRMATION_HEADER } from "@/lib/confirmation-link";
+import { RATE_LIMITED, SIGN_IN_REFUSED } from "@/lib/strings";
 
-/** What the verification link left behind for this form to say. */
+/** What the confirmation link left behind for this form to say. */
 export type LoginNotice = {
   readonly tone: "done" | "problem";
   readonly message: string;
 };
 
+/** A confirmation link that is still good, and the address it was sent to. */
+export type PendingConfirmation = {
+  readonly token: string;
+  readonly email: string;
+};
+
 export function LoginForm({
   next,
   notice = null,
+  confirmation = null,
 }: {
   readonly next: string;
   /**
-   * The verification link confirms an address and signs nobody in, so it lands
-   * here — and the form owes the person a reason for being shown.
+   * The confirmation link lands here, and the form owes the person a reason
+   * for being shown.
    */
   readonly notice?: LoginNotice | null;
+  /**
+   * Sent along with the password: signing in with both is what confirms the
+   * address (ADR 0007).
+   */
+  readonly confirmation?: PendingConfirmation | null;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -35,14 +49,17 @@ export function LoginForm({
     setError(null);
 
     const form = new FormData(event.currentTarget);
-    const result = await signIn.email({
-      email: String(form.get("email") ?? ""),
-      password: String(form.get("password") ?? ""),
-    });
+    const result = await signIn.email(
+      {
+        email: String(form.get("email") ?? ""),
+        password: String(form.get("password") ?? ""),
+      },
+      confirmation ? { headers: { [CONFIRMATION_HEADER]: confirmation.token } } : undefined,
+    );
 
     setBusy(false);
     if (result.error) {
-      setError(result.error.message ?? "E-mail ou senha incorretos.");
+      setError(refusal(result.error, confirmation !== null));
       return;
     }
 
@@ -74,7 +91,14 @@ export function LoginForm({
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <Field label="E-mail">
           {(id) => (
-            <Input id={id} name="email" type="email" required autoComplete="email" />
+            <Input
+              id={id}
+              name="email"
+              type="email"
+              required
+              autoComplete="email"
+              defaultValue={confirmation?.email}
+            />
           )}
         </Field>
 
@@ -118,4 +142,24 @@ export function LoginForm({
       </p>
     </section>
   );
+}
+
+/**
+ * What a refused sign-in says. With a confirmation link, a wrong password
+ * may be the right one for the person and the wrong one for this account —
+ * one somebody else created with their address — and the way out is the same
+ * either way: a new password, set from the mailbox.
+ */
+function refusal(
+  error: { status: number; code?: string | undefined },
+  confirming: boolean,
+): string {
+  if (error.status === 429) return RATE_LIMITED;
+  if (error.code === "EMAIL_NOT_VERIFIED") return SIGN_IN_REFUSED.EMAIL_NOT_VERIFIED;
+  if (error.code === "INVALID_EMAIL_OR_PASSWORD") {
+    return confirming
+      ? SIGN_IN_REFUSED.CONFIRMATION_PASSWORD_MISMATCH
+      : SIGN_IN_REFUSED.INVALID_EMAIL_OR_PASSWORD;
+  }
+  return SIGN_IN_REFUSED.FALLBACK;
 }

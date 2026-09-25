@@ -10,17 +10,19 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
+import { and, eq } from "drizzle-orm";
+import { CONFIRMATION_HEADER, confirmationPath } from "@/lib/confirmation-link";
 import { newId } from "@/lib/id";
 import { getSystemDatabase, type Database } from "@/server/db/client";
 import * as schema from "@/server/db/schema";
 import { senderFromEnvironment, type EmailSender } from "@/server/email/sender";
 import {
+  existingAccountEmail,
   resetPasswordEmail,
   verificationEmail,
 } from "@/server/email/templates";
 import { ensurePersonalWorkspace } from "@/server/modules/workspaces/repository";
-import { DEFAULT_DESTINATION, safeDestination } from "@/lib/nav";
-import { VERIFIED_PARAM } from "@/lib/strings";
+import { confirmBeforeSignIn } from "./confirmation";
 import {
   MIN_PASSWORD_LENGTH,
   PASSWORD_MESSAGES,
@@ -97,39 +99,61 @@ export function createAuth({
           resetPasswordEmail({ to: user.email, name: user.name, url }),
         );
       },
+      /**
+       * The reset link was delivered to the mailbox, and the password is the
+       * one the person holding it just chose — which is everything confirming
+       * an address asks for (ADR 0007). It is also how the owner of an address
+       * takes it back from an account somebody else created with it: the
+       * stranger's password stops working in the same step.
+       */
+      onPasswordReset: async ({ user }) => {
+        await database
+          .update(schema.users)
+          .set({ emailVerified: true, updatedAt: new Date() })
+          .where(and(eq(schema.users.id, user.id), eq(schema.users.emailVerified, false)));
+      },
+      /**
+       * Sign-up with an address that already has an account answers exactly as
+       * it does for a new one, so that it does not tell a stranger which
+       * addresses exist. It used to send nothing at all: the owner of the
+       * address waited for a message that never came, and "Reenviar" sent them
+       * a link to an account somebody else had created with it (ADR 0007).
+       * Now the mailbox hears about it.
+       */
+      onExistingUserSignUp: async ({ user }) => {
+        await sender.send(
+          existingAccountEmail({ to: user.email, url: new URL("/login", baseUrl).toString() }),
+        );
+      },
     },
     emailVerification: {
       sendOnSignUp: true,
-      // Fifteen minutes rather than the default hour. The link no longer
-      // carries a session, so this is an expiry and not a bearer window; it
+      /**
+       * Signing in to an account nobody has confirmed sends a fresh link — but
+       * only once the password was right, so it is the account's owner asking,
+       * and a link that expired is never a dead end.
+       */
+      sendOnSignIn: true,
+      // Fifteen minutes rather than the default hour. The link confirms
+      // nothing on its own, so this is an expiry and not a bearer window; it
       // stays short because nothing in a hardening phase should widen.
       expiresIn: 900,
       /**
-       * The link confirms the address. It does not sign anybody in.
-       *
-       * It is a GET that changes state, which is exactly what a mail scanner,
-       * a security gateway or a prefetching client follows before the person
-       * does — and with this on, whichever of them arrived first got the
-       * session cookie. The person's own click then hit the already-verified
-       * branch, which returns before any session is created, and they landed
-       * on a page the proxy bounced straight back to the login form with
-       * nothing to explain it. So the convenience was not even reliable.
-       *
-       * This is the same shape the invitation flow was given in Phase 9, where
-       * accepting became a click rather than a page load, and for the same
-       * reason. The cost is one extra step at sign-up, once per account.
+       * Better Auth's own link — a GET to `/verify-email` — never runs: the
+       * hook below turns it into the login form (ADR 0007). This stays off in
+       * case it ever does: it would hand a session to whichever mail scanner
+       * followed the link first.
        */
       autoSignInAfterVerification: false,
-      sendVerificationEmail: async ({ user, url }) => {
+      sendVerificationEmail: async ({ user, url, token }) => {
         await sender.send(
           verificationEmail({
             to: user.email,
             name: user.name,
-            // Better Auth defaults the callback to "/", the marketing page.
-            // Verification no longer signs anybody in, so the link lands on
-            // the login form, which says the address is confirmed and keeps
-            // whatever the sign-up was on its way to.
-            url: afterVerification(url),
+            // The login form, carrying the token and wherever sign-up was on
+            // its way to — the invitation the person was following, most
+            // often. Signing in there is what confirms the address.
+            url: confirmationUrl(url, token),
           }),
         );
       },
@@ -173,43 +197,24 @@ export function createAuth({
         "/send-verification-email": { window: 60, max: 5 },
       },
     },
-    /**
-     * The password policy runs before the request that would store it. It
-     * checks length, a blocklist of what people actually pick, the person's own
-     * name and address, and — best effort — the breach corpus. What it
-     * deliberately does not do is demand an uppercase, a digit and a symbol:
-     * that rule produces `Senha@123`, which is in every breach list.
-     */
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
-        if (!PASSWORD_PATHS.includes(ctx.path)) return;
-
-        const body = (ctx.body ?? {}) as {
-          password?: string;
-          newPassword?: string;
-          email?: string;
-          name?: string;
-          token?: string;
-        };
-        const password = body.newPassword ?? body.password;
-        if (!password) return;
-
-        // A reset carries no name or address, only the token; the person is
-        // behind it in the verification row, and the policy should refuse
-        // their own name in the new password as it does at sign-up.
-        const identity =
-          ctx.path === "/reset-password"
-            ? await identityBehindResetToken(ctx, body.token ?? ctx.query?.token)
-            : { email: body.email, name: body.name };
-
-        const decision = await checkPassword(password, identity, { checkBreaches });
-
-        if (decision.kind === "refused") {
-          throw new APIError("BAD_REQUEST", {
-            message: PASSWORD_MESSAGES[decision.reason],
-            code: "WEAK_PASSWORD",
-          });
+        /**
+         * The confirmation link is no longer Better Auth's to follow. One sent
+         * before ADR 0007 still points here; it lands where a new one does,
+         * and confirms nothing on the way.
+         */
+        if (ctx.path === "/verify-email") {
+          throw ctx.redirect(confirmationPath(ctx.query?.token, ctx.query?.callbackURL));
         }
+
+        if (ctx.path === "/sign-in/email") {
+          const token = ctx.headers?.get(CONFIRMATION_HEADER);
+          if (token) await confirmBeforeSignIn(ctx.context, token, ctx.body ?? {});
+          return;
+        }
+
+        await holdToPasswordPolicy(ctx, checkBreaches);
       }),
     },
     plugins: [nextCookies()],
@@ -219,6 +224,44 @@ export function createAuth({
 export type Auth = ReturnType<typeof createAuth>;
 
 type HookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
+
+/**
+ * The password policy runs before the request that would store it. It checks
+ * length, a blocklist of what people actually pick, the person's own name and
+ * address, and — best effort — the breach corpus. What it deliberately does
+ * not do is demand an uppercase, a digit and a symbol: that rule produces
+ * `Senha@123`, which is in every breach list.
+ */
+async function holdToPasswordPolicy(ctx: HookContext, checkBreaches: boolean): Promise<void> {
+  if (!PASSWORD_PATHS.includes(ctx.path)) return;
+
+  const body = (ctx.body ?? {}) as {
+    password?: string;
+    newPassword?: string;
+    email?: string;
+    name?: string;
+    token?: string;
+  };
+  const password = body.newPassword ?? body.password;
+  if (!password) return;
+
+  // A reset carries no name or address, only the token; the person is behind
+  // it in the verification row, and the policy should refuse their own name in
+  // the new password as it does at sign-up.
+  const identity =
+    ctx.path === "/reset-password"
+      ? await identityBehindResetToken(ctx, body.token ?? ctx.query?.token)
+      : { email: body.email, name: body.name };
+
+  const decision = await checkPassword(password, identity, { checkBreaches });
+
+  if (decision.kind === "refused") {
+    throw new APIError("BAD_REQUEST", {
+      message: PASSWORD_MESSAGES[decision.reason],
+      code: "WEAK_PASSWORD",
+    });
+  }
+}
 
 /**
  * Who a reset token belongs to, read the way the endpoint reads it: the
@@ -259,40 +302,15 @@ export function getAuth(): Auth {
 }
 
 /**
- * The fallback is for a developer's own machine and nowhere else. Anything that
- * is not `development` — staging, preview, a container someone forgot to
- * configure — fails loudly rather than signing sessions with a secret that is
- * published in this file.
+ * The link the verification message carries: the login form with the token,
+ * on the same origin as the link Better Auth built. Better Auth's link names
+ * the callback sign-up asked for — the register form always sends one — and
+ * that survives as `next`.
  */
-/**
- * Where the verification link lands: the login form, saying so.
- *
- * Sign-up may have been on its way somewhere specific — the invitation the
- * person was following — and that survives as `next`, so signing in continues
- * the journey instead of dropping them on the dashboard. The proxy would send
- * them to the same place anyway; arriving with the notice is the difference
- * between "confirmed, now sign in" and a login form that appeared for no
- * visible reason.
- */
-function afterVerification(url: string): string {
-  const parsed = new URL(url);
-  const asked = parsed.searchParams.get("callbackURL");
-
-  const login = new URLSearchParams({ [VERIFIED_PARAM]: "1" });
-  // The register form always sends a callback, and for most people it is the
-  // dashboard — which is where the login form goes anyway. Only somewhere
-  // *else* is worth carrying, and carrying nothing keeps the link readable.
-  // `safeDestination` is what decides the value is a path here and not another
-  // host; the login page checks it again on the way out.
-  const destination = safeDestination(asked, DEFAULT_DESTINATION);
-  // "/" is what Better Auth substitutes when sign-up names no callback at all,
-  // and it is the marketing page — not somewhere to send a person who has just
-  // confirmed an address.
-  if (destination !== DEFAULT_DESTINATION && destination !== "/") {
-    login.set("next", destination);
-  }
-
-  parsed.searchParams.set("callbackURL", `/login?${login.toString()}`);
-  return parsed.toString();
+function confirmationUrl(url: string, token: string): string {
+  const built = new URL(url);
+  return new URL(
+    confirmationPath(token, built.searchParams.get("callbackURL")),
+    built.origin,
+  ).toString();
 }
-

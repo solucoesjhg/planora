@@ -307,11 +307,25 @@ rather than the header, and refuses a second upload to a path. Removing a file
 is its uploader's or a manager's. `/api/attachments` answers a malformed id
 with a 404 and reads the workspace the browser chose.
 
+**An address is confirmed with its password (2026-09-24).** The fifth repair.
+Better Auth confirmed an address when its link was opened, whatever password
+the account held, and answered a second sign-up for the same address by
+sending nothing — so the owner pressed "Reenviar" and confirmed the account a
+stranger had created with their address. ADR 0007: the link now carries its
+token to the login form, and a hook before sign-in confirms the address only
+when the token arrives with the account's own password. Better Auth's
+`/verify-email` is turned into that form before its handler runs, so an old
+link and a mail scanner confirm nothing. A password reset confirms the address
+(the owner's way to take it back), a sign-up for an address that has an
+account tells the mailbox so, and signing in unconfirmed with the right
+password sends a fresh link. The login form answers Better Auth's refusals in
+pt-BR.
+
 ## Next
 
 - The rest of the security audit, in this order — each its own pull request:
-  the pre-registered account, the ESLint boundaries and `server-only`, then
-  the barrier's per-command policies and the membership foreign keys. The list is below, under **What the security
+  the ESLint boundaries and `server-only`, then the barrier's per-command
+  policies and the membership foreign keys. The list is below, under **What the security
   audit found**.
 - Phase 11 · Launch readiness — a preview per pull request, error tracking, the
   performance budget, the accessibility pass, and E2E in CI (§7).
@@ -385,12 +399,16 @@ is signed only for what was kept, the bucket must enforce the list and 25 MB
 before a ticket is issued, the clock sweeps uploads nobody confirmed, and a
 file is removed by whoever sent it or by a manager.
 
+**Repaired** (ADR 0007): a pre-registered address could be taken. Somebody
+signed up with another person's address and a password of their own; when the
+owner later signed up, Better Auth answered "ok" and sent nothing, and
+"Reenviar" sent a link that confirmed the first account — the stranger's
+password. Now the link confirms only together with the account's password, a
+reset confirms the address and replaces the password, and a sign-up for an
+address that has an account tells the mailbox.
+
 **Open, most serious first:**
 
-- **A pre-registered address can be taken.** Somebody signs up with another
-  person's address and a password of their own; when the owner of the address
-  later signs up, Better Auth answers "ok" and sends nothing, and "Reenviar"
-  sends a link that verifies the first account — the stranger's password.
 - **The ESLint boundaries are not enforced.** The domain rule is overwritten by
   the lane rule (flat config replaces a rule's options), so `domain/` may
   import anything; the lane rule misses a relative import; nothing stops a
@@ -413,7 +431,9 @@ file is removed by whoever sent it or by a manager.
   third-party and SQL error text reaching the client; expired invitations
   blocking an address forever, and no way to revoke one; `docker-compose`
   publishing Postgres and Mailpit on every interface with the default
-  password; CI without a `permissions` block or pinned actions.
+  password; CI without a `permissions` block or pinned actions; an account
+  taken back through a reset keeps the name the stranger typed, with no
+  profile page to change it.
 
 Not security, found on the way: deleting a workspace leaves its files in the
 bucket; a date like `2026-99-99` passes validation and becomes a 500.
@@ -447,8 +467,16 @@ SQL Editor and was dry-run against a local database.
   0004). There is no way to remove a member yet, so any row here is
   `notify → user` pointed at a stranger before the repair:
   `select n.workspace_id, n.user_id, count(*) from notifications n left join workspace_members m on m.workspace_id = n.workspace_id and m.user_id = n.user_id where m.id is null group by 1, 2;`
-- [ ] **Accounts never verified** — the raw material of the pre-registered
-  address: `select count(*) as unverified, min(created_at) as oldest from users where email_verified = false;`
+- [ ] **Accounts confirmed long after sign-up** (repaired by ADR 0007 — this
+  asks whether anybody did it before). The link lasts fifteen minutes, so an
+  account confirmed hours or days after it was created was confirmed through
+  "Reenviar" — the path the takeover took. Confirming bumps `updated_at`, and
+  nothing else in the application touches a user row:
+  `select email, created_at, updated_at - created_at as confirmed_after from users where email_verified and updated_at - created_at > interval '1 hour' order by created_at;`
+  A row is a question for its owner, not proof: can they sign in with the
+  password they chose? If not, "Esqueci minha senha" takes the account back.
+  Accounts never confirmed are harmless now, however many there are:
+  `select count(*) as unverified, min(created_at) as oldest from users where email_verified = false;`
 - [ ] **Uploads never confirmed** (the clock sweeps them since ADR 0006 —
   this shows what had piled up before, and should read zero a few hours after
   that deploy):
