@@ -132,7 +132,9 @@ test("the password field answers as the person types, and sends nothing it knows
   await page.getByLabel("E-mail").fill(uniqueEmail());
 
   const password = page.getByLabel("Senha");
-  const status = page.locator("[aria-live=polite]").filter({ hasText: /senha|caracteres/i });
+  // The line the input is described by: what a person sees under it, and what
+  // a screen reader reads on focus.
+  const status = page.locator(`[id="${await password.getAttribute("aria-describedby")}"]`);
 
   await password.fill("senha123");
   await expect(status).toContainText("das mais usadas");
@@ -147,7 +149,7 @@ test("the password field answers as the person types, and sends nothing it knows
   expect(signUps).toHaveLength(0);
 
   await password.fill(PASSWORD);
-  await expect(status).toContainText("Senha aceita.");
+  await expect(status).toContainText("Boa senha.");
   await expect(password).not.toHaveAttribute("aria-invalid", "true");
 
   await page.getByRole("button", { name: "Criar conta" }).click();
@@ -198,8 +200,18 @@ test("a forgotten password is replaced through the link in the inbox", async ({
   await expect(page).toHaveURL(/\/reset-password\?token=/);
   await expect(page.getByRole("heading", { name: "Nova senha" })).toBeVisible();
 
+  // The person's own name: only the server knows it here, so the field hears
+  // it at submit — and from then on says so itself (ADR 0008).
+  const field = page.getByLabel("Nova senha");
+  await field.fill("pessoa de teste, de novo");
+  await page.getByRole("button", { name: "Salvar nova senha" }).click();
+  await expect(field).toHaveAttribute("aria-invalid", "true");
+  await expect(
+    page.locator(`[id="${await field.getAttribute("aria-describedby")}"]`),
+  ).toContainText("seu nome ou e-mail");
+
   const replacement = "outra trilha, agora seca";
-  await page.getByLabel("Nova senha").fill(replacement);
+  await field.fill(replacement);
   await page.getByRole("button", { name: "Salvar nova senha" }).click();
   await expect(page.getByRole("heading", { name: "Senha redefinida" })).toBeVisible();
 

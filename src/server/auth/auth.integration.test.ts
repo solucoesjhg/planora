@@ -629,7 +629,11 @@ suite("trying passwords at sign-up", () => {
       password: "cafe com leite quente",
     });
     expect(many.status).toBe(400);
-    expect(((await many.json()) as { message?: string }).message).toBe(PASSWORD_REFUSALS.breached);
+    const refusal = (await many.json()) as { message?: string; code?: string; reason?: string };
+    expect(refusal.message).toBe(PASSWORD_REFUSALS.breached);
+    // The reason travels beside the message, so the form can mark the field.
+    expect(refusal.code).toBe("WEAK_PASSWORD");
+    expect(refusal.reason).toBe("breached");
 
     const few = await signUp(auth, {
       name: "Bia",
@@ -681,6 +685,47 @@ suite("trying passwords at sign-up", () => {
     expect(response.status).toBe(403);
     expect(await allowanceUsed("signUp", address, connection.db)).toBe(0);
     expect(await connection.db.select().from(users)).toHaveLength(0);
+  });
+
+  /**
+   * A browser without fetch metadata, or a sibling subdomain (which says
+   * "same-site"), still sends its `Origin`: refused before counting, as the
+   * endpoint would refuse it after.
+   */
+  it("refuses an untrusted origin before it costs anything, and lets its own through", async () => {
+    const auth = authWithCorpus();
+    const body = { name: "Ana", email: "ana@example.com", password: good };
+
+    const foreign = await signUp(auth, body, { origin: "https://evil.example" });
+    const sibling = await signUp(auth, body, {
+      origin: "https://app.localhost.example",
+      "sec-fetch-site": "same-site",
+    });
+    expect(foreign.status).toBe(403);
+    expect(sibling.status).toBe(403);
+    expect(await allowanceUsed("signUp", address, connection.db)).toBe(0);
+
+    const own = await signUp(auth, body, {
+      origin: "http://localhost:3000",
+      "sec-fetch-site": "same-origin",
+    });
+    expect(own.status).toBe(200);
+    expect(await allowanceUsed("signUp", address, connection.db)).toBe(1);
+  });
+
+  /** Better Auth's own limiter counts only what arrives over the network. */
+  it("does not count a sign-up the server makes itself, headers or not", async () => {
+    const auth = authWithCorpus();
+
+    for (let index = 0; index < 6; index += 1) {
+      await auth.api.signUpEmail({
+        body: { name: `Pessoa ${index}`, email: `pessoa${index}@example.com`, password: good },
+        headers: new Headers({ "x-forwarded-for": address }),
+      });
+    }
+
+    expect(await connection.db.select().from(users)).toHaveLength(6);
+    expect(await allowanceUsed("signUp", address, connection.db)).toBe(0);
   });
 
   it("refuses a password longer than it would store, before counting it", async () => {

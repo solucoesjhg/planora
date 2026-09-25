@@ -227,7 +227,9 @@ export const PASSWORD_REFUSALS: Record<PasswordRefusal, string> = {
 export const PASSWORD_FEEDBACK = {
   hint: "Ao menos 8 caracteres. Uma frase que só você diria vale mais que símbolos.",
   checking: "Conferindo se esta senha aparece em vazamentos…",
-  accepted: "Senha aceita.",
+  // Not "accepted": at submit the server still checks what the field cannot —
+  // the name behind a reset link, or the corpus when it was out of reach.
+  accepted: "Boa senha.",
   /** The breach corpus could not be asked; the server decides at submit. */
   unavailable:
     "Não deu para consultar os vazamentos agora. A senha será conferida quando você enviar.",
@@ -235,8 +237,10 @@ export const PASSWORD_FEEDBACK = {
 
 /**
  * The sign-up allowance counts accounts, not attempts (ADR 0008): a refused
- * password never spends it, so this is only ever read after five accepted
- * sign-ups from one connection inside a minute.
+ * password never spends it, so this is read after five accepted sign-ups from
+ * one connection inside a minute — the hook's `RATE_LIMITED` answer. Better
+ * Auth's own outer bound answers 429 without that code, and the form shows the
+ * general `RATE_LIMITED` line for it instead.
  */
 export const SIGN_UP_RATE_LIMITED =
   "Muitos cadastros a partir desta conexão em pouco tempo. Espere um minuto e tente de novo.";

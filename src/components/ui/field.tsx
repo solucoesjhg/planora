@@ -48,9 +48,11 @@ export type FieldProps = {
   readonly hint?: string;
   readonly error?: string;
   /**
-   * A live line in place of the hint — the password field's verdict, for
-   * one. It is announced politely: a line that changes on every keystroke
-   * must not interrupt the person typing.
+   * A line in place of the hint that changes as the person types — the
+   * password field's verdict, for one. It describes the control, so focusing
+   * the control reads it; it is not a live region, because a line that
+   * changes on every keystroke would be read on every keystroke. What to
+   * announce, and when, is the caller's.
    */
   readonly status?: FieldStatus;
   readonly className?: string;
@@ -85,12 +87,7 @@ export function Field({ label, hint, error, status, className, children }: Field
           {error}
         </p>
       ) : status ? (
-        <p
-          id={describedBy}
-          aria-live="polite"
-          aria-atomic="true"
-          className={cn("text-xs", STATUS_TONE[status.tone])}
-        >
+        <p id={describedBy} className={cn("text-xs", STATUS_TONE[status.tone])}>
           {status.text}
         </p>
       ) : hint ? (

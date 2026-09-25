@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { consume, limitKey, LIMITS, type Bucket } from "@/domain/rate-limit";
 import { newId } from "@/lib/id";
 import { isRefused, refused, type Result } from "@/lib/result";
@@ -26,10 +26,15 @@ import { rateLimits } from "@/server/db/schema";
  * lane: the count has to survive the refusal, and a refused request that rolled
  * its own transaction back would never increment anything.
  *
- * `select … for update` is what makes it a count rather than an estimate. Two
- * requests arriving together would otherwise both read fifty-nine and both
- * write sixty; the row lock serialises them per key, which is per person, so
- * nobody waits on anybody else's allowance.
+ * A transaction-scoped advisory lock on the key is what makes it a count
+ * rather than an estimate. Two requests arriving together would otherwise both
+ * read fifty-nine and both write sixty. `select … for update` alone was not
+ * enough: it locks nothing while the row does not exist yet — the first
+ * request from a connection, or any after Better Auth prunes the row — and
+ * every request arriving then read "none" and wrote one. Twenty simultaneous
+ * sign-ups got through a limit of five that way (ADR 0008). The lock is per
+ * key, which is per person or per connection, so nobody waits on anybody
+ * else's allowance.
  */
 
 export type Limited<Failure extends string> = Failure | "rate-limited";
@@ -43,6 +48,8 @@ export async function consumeAllowance(
   const key = limitKey(bucket, subject);
 
   return database.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
+
     const [stored] = await tx
       .select({ count: rateLimits.count, openedAt: rateLimits.lastRequest })
       .from(rateLimits)

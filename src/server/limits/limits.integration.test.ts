@@ -107,4 +107,37 @@ suite("the allowance on write actions", () => {
 
     expect(await allowanceUsed("write", person)).toBe(10);
   });
+
+  /**
+   * The design review of ADR 0008: `select … for update` locks nothing while
+   * the row does not exist, and on a pool wide enough to run them at once,
+   * twenty sign-ups from a new connection all read "none" and all got in
+   * through a limit of five.
+   */
+  it("admits exactly the limit when a burst arrives before any row exists", async () => {
+    const wide = await connectAndMigrate(20);
+    const address = "203.0.113.200";
+    const now = 1_700_000_000_000;
+
+    try {
+      await forgetAllowance("signUp", address);
+
+      const results = await Promise.all(
+        Array.from({ length: 20 }, () => consumeAllowance("signUp", address, now, wide.db)),
+      );
+
+      expect(results.filter((result) => !isRefused(result))).toHaveLength(LIMITS.signUp.max);
+      expect(await allowanceUsed("signUp", address, wide.db)).toBe(LIMITS.signUp.max);
+
+      // And a burst counted from nothing is counted once each.
+      await forgetAllowance("write", person);
+      await Promise.all(
+        Array.from({ length: 10 }, () => consumeAllowance("write", person, now, wide.db)),
+      );
+      expect(await allowanceUsed("write", person, wide.db)).toBe(10);
+    } finally {
+      await forgetAllowance("signUp", address);
+      await wide.close();
+    }
+  });
 });

@@ -4,7 +4,11 @@ import { KeyRound } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { Button, buttonClassName } from "@/components/ui/button";
-import { PasswordField, usePasswordCheck } from "@/features/auth/password-field";
+import {
+  PasswordField,
+  passwordRefusalOf,
+  usePasswordCheck,
+} from "@/features/auth/password-field";
 import { authClient } from "@/lib/auth-client";
 import { RESET_RATE_LIMITED } from "@/lib/strings";
 
@@ -33,23 +37,34 @@ export function ResetPasswordForm({
     if (!token) return;
     setError(null);
 
-    const form = event.currentTarget;
-    if (password.settle()) {
-      (form.elements.namedItem("password") as HTMLInputElement | null)?.focus();
+    const passwordInput = event.currentTarget.elements.namedItem(
+      "password",
+    ) as HTMLInputElement | null;
+    // What the input holds now, not what the page has heard: text typed before
+    // it hydrated is only in the input.
+    const typed = passwordInput?.value ?? "";
+    if (password.settle(typed)) {
+      passwordInput?.focus();
       return;
     }
 
     setBusy(true);
-    const result = await authClient.resetPassword({
-      newPassword: password.password,
-      token,
-    });
+    const result = await authClient.resetPassword({ newPassword: typed, token });
 
     setBusy(false);
     if (result.error) {
       if (result.error.code === "INVALID_TOKEN") {
         // Used, expired, or never real: the form cannot help any more.
         setStale(true);
+        return;
+      }
+      // The server refused the password — most often the person's own name,
+      // which only the server knows here. The field says so, and will not
+      // send it again.
+      const refusal = passwordRefusalOf(result.error);
+      if (refusal) {
+        password.refuse(typed, refusal);
+        passwordInput?.focus();
         return;
       }
       setError(

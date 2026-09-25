@@ -5,7 +5,11 @@ import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
-import { PasswordField, usePasswordCheck } from "@/features/auth/password-field";
+import {
+  PasswordField,
+  passwordRefusalOf,
+  usePasswordCheck,
+} from "@/features/auth/password-field";
 import { authClient, signUp } from "@/lib/auth-client";
 import { RATE_LIMITED, SIGN_UP_RATE_LIMITED } from "@/lib/strings";
 
@@ -31,37 +35,57 @@ export function RegisterForm({ next }: { next: string }) {
     setError(null);
 
     const form = event.currentTarget;
+    const passwordInput = form.elements.namedItem("password") as HTMLInputElement | null;
+    // What the inputs hold now, not what the page has heard: text typed before
+    // it hydrated is only in the inputs.
+    const data = new FormData(form);
+    const typed = {
+      name: String(data.get("name") ?? ""),
+      email: String(data.get("email") ?? ""),
+      password: String(data.get("password") ?? ""),
+    };
+
     // A password the field already knows is refused is not sent: the field
     // says why, and the person keeps their attempts.
-    if (password.settle()) {
-      (form.elements.namedItem("password") as HTMLInputElement | null)?.focus();
+    if (password.settle(typed.password, typed)) {
+      passwordInput?.focus();
       return;
     }
 
     setBusy(true);
-    const data = new FormData(form);
-    const address = String(data.get("email") ?? "");
     const result = await signUp.email({
-      name: String(data.get("name") ?? ""),
-      email: address,
-      password: password.password,
+      name: typed.name,
+      email: typed.email,
+      password: typed.password,
       // Travels into the verification link, so the link lands here.
       callbackURL: next,
     });
 
     setBusy(false);
     if (result.error) {
-      // A refused password arrives with its own message; a rate limit arrives
-      // with none, and "não foi possível" would leave the person clicking again
-      // into the same wall.
+      // The server refused the password — the corpus answered at submit what
+      // it could not answer as the person typed. The field says so, and will
+      // not send it again.
+      const refusal = passwordRefusalOf(result.error);
+      if (refusal) {
+        password.refuse(typed.password, refusal);
+        passwordInput?.focus();
+        return;
+      }
+      // A rate limit arrives with no message a person can act on, and "não
+      // foi possível" would leave them clicking again into the same wall. Only
+      // the allowance on accounts says "muitos cadastros"; Better Auth's own
+      // outer bound gets the general line.
       setError(
         result.error.status === 429
-          ? SIGN_UP_RATE_LIMITED
+          ? result.error.code === "RATE_LIMITED"
+            ? SIGN_UP_RATE_LIMITED
+            : RATE_LIMITED
           : (result.error.message ?? "Não foi possível criar a conta."),
       );
       return;
     }
-    setEmail(address);
+    setEmail(typed.email);
     setSent(true);
   }
 
@@ -147,7 +171,6 @@ export function RegisterForm({ next }: { next: string }) {
               name="name"
               required
               autoComplete="name"
-              value={identity.name}
               onChange={(event) =>
                 setIdentity((current) => ({ ...current, name: event.target.value }))
               }
@@ -163,7 +186,6 @@ export function RegisterForm({ next }: { next: string }) {
               type="email"
               required
               autoComplete="email"
-              value={identity.email}
               onChange={(event) =>
                 setIdentity((current) => ({ ...current, email: event.target.value }))
               }

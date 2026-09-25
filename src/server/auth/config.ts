@@ -34,6 +34,7 @@ import { consumeAllowance } from "@/server/limits";
 import { confirmBeforeSignIn } from "./confirmation";
 import { passwordCheck } from "./password-check";
 import { type BreachLookup, checkPassword } from "./password-policy";
+import { breachChecksOn } from "./breach-switch";
 import { authSecret } from "./secret";
 
 /** How long a password-reset link works, in seconds. The email says so too. */
@@ -206,11 +207,12 @@ export function createAuth({
          * Only an outer bound against scripts. Better Auth counts a request
          * here before the body is read, and cannot give a count back, so a
          * refused password used to spend one of five attempts a minute — and
-         * since its window restarts on every request, a person who kept
-         * trying never got out (ADR 0008). The real allowance, five accounts a
-         * minute, is Planora's own and is spent after the password policy, in
-         * the hook below. The form never sends a password it knows is
-         * refused, so a person does not reach sixty.
+         * since its count resets only after a whole minute without an allowed
+         * request, five attempts spread over several minutes used it up
+         * (ADR 0008). The real allowance, five accounts a minute, is Planora's
+         * own and is spent after the password policy, in the hook below. The
+         * form never sends a password it knows is refused, so a person does
+         * not reach sixty.
          */
         "/sign-up/email": { window: 60, max: 60 },
         // The live check the forms call as the person types (ADR 0008). A
@@ -285,6 +287,8 @@ async function refuseWeakPassword(
     throw new APIError("BAD_REQUEST", {
       message: PASSWORD_REFUSALS[decision.reason],
       code: "WEAK_PASSWORD",
+      // So the form can mark the field itself, not only say why below it.
+      reason: decision.reason,
     });
   }
 }
@@ -296,23 +300,21 @@ async function refuseWeakPassword(
  *    judged. The hook used to judge `newPassword ?? password` for every path;
  *    sign-up accepts extra keys, so a weak `password` sent beside a strong
  *    `newPassword` was stored unjudged.
- * 2. A cross-site request is refused before it costs anything. The endpoint's
- *    own CSRF check refuses it too, but only after this hook — by then a
- *    hostile page would have spent its visitor's allowance.
+ * 2. A request from another origin is refused before it costs anything. The
+ *    endpoint's own CSRF check refuses it too, but only after this hook — by
+ *    then a hostile page would have spent its visitor's allowance.
  * 3. The policy. A refusal throws here, and nothing has been counted.
  * 4. The allowance: five accepted sign-ups a minute per connection, which is
- *    what bounds accounts and the messages sign-up sends. A call from the
- *    server itself, with no request, is not counted — as Better Auth's own
- *    limiter does not count it.
+ *    what bounds accounts and the messages sign-up sends. Only a request that
+ *    arrived over the network is counted — a call from the server itself,
+ *    headers or not, is not, as Better Auth's own limiter does not count it.
  */
 async function admitSignUp(ctx: HookContext, policy: PasswordPolicy): Promise<void> {
   const body = (ctx.body ?? {}) as { password?: unknown; email?: unknown; name?: unknown };
   // Not a string: Better Auth refuses it on its own a moment later.
   if (typeof body.password !== "string") return;
 
-  if (ctx.request?.headers.get("sec-fetch-site") === "cross-site") {
-    throw new APIError("FORBIDDEN", { message: "Invalid origin", code: "INVALID_ORIGIN" });
-  }
+  refuseForeignOrigin(ctx);
 
   await refuseWeakPassword(
     body.password,
@@ -320,13 +322,12 @@ async function admitSignUp(ctx: HookContext, policy: PasswordPolicy): Promise<vo
     policy,
   );
 
-  const source = ctx.request ?? ctx.headers;
-  if (!source) return;
+  if (!ctx.request) return;
 
   // The address Better Auth's own limiter counts, resolved the same way. When
   // it cannot be resolved, every such request shares one key — closed rather
   // than open, as Better Auth does.
-  const address = getIP(source, ctx.context.options) ?? "unresolved";
+  const address = getIP(ctx.request, ctx.context.options) ?? "unresolved";
   const allowance = await consumeAllowance("signUp", address, Date.now(), policy.database);
 
   if (isRefused(allowance)) {
@@ -334,6 +335,32 @@ async function admitSignUp(ctx: HookContext, policy: PasswordPolicy): Promise<vo
       message: SIGN_UP_RATE_LIMITED,
       code: "RATE_LIMITED",
     });
+  }
+}
+
+/**
+ * What the endpoint's own CSRF check will refuse, refused before anything is
+ * counted: a browser saying the request is cross-site, or an `Origin` (or,
+ * failing that, a `Referer`) this deployment does not trust — which covers the
+ * browsers that send no fetch metadata and a sibling subdomain, which says
+ * "same-site". A request with neither is not a browser's form, and Better Auth
+ * does not refuse it either.
+ */
+function refuseForeignOrigin(ctx: HookContext): void {
+  const headers = ctx.request?.headers;
+  if (!headers) return;
+
+  const site = headers.get("sec-fetch-site");
+  const origin = headers.get("origin") || headers.get("referer");
+  // A browser may send `Origin: null` for its own page; Better Auth accepts it
+  // when the fetch metadata says same-origin, and so does this.
+  const ownNullOrigin = origin === "null" && site === "same-origin";
+  const foreign =
+    site === "cross-site" ||
+    (origin !== null && origin !== "" && !ownNullOrigin && !ctx.context.isTrustedOrigin(origin));
+
+  if (foreign) {
+    throw new APIError("FORBIDDEN", { message: "Invalid origin", code: "INVALID_ORIGIN" });
   }
 }
 
@@ -390,20 +417,14 @@ let instance: Auth | null = null;
 export function getAuth(): Auth {
   if (instance) return instance;
 
-  const disableBreachCheck = process.env["DISABLE_BREACH_CHECK"] === "1";
-  // The E2E suite turns the breach lookup off so it stays hermetic. A
-  // production deployment that inherited the switch would silently accept the
-  // most leaked passwords there are, so it refuses to start instead.
-  if (disableBreachCheck && process.env["VERCEL_ENV"] === "production") {
-    throw new Error("DISABLE_BREACH_CHECK must not be set in production");
-  }
-
   instance = createAuth({
     database: getSystemDatabase(),
     sender: senderFromEnvironment(),
     baseUrl: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
     secret: authSecret(),
-    checkBreaches: !disableBreachCheck,
+    // The E2E suite turns the breach lookup off so it stays hermetic; in
+    // production the switch is refused at build and ignored here.
+    checkBreaches: breachChecksOn(),
   });
 
   return instance;
