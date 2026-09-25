@@ -3,6 +3,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { signJWT } from "better-auth/crypto";
 import { CONFIRMATION_HEADER } from "@/lib/confirmation-link";
+import { PASSWORD_REFUSALS, SIGN_UP_RATE_LIMITED } from "@/lib/strings";
+import { allowanceUsed } from "@/server/limits";
 import { isRefused } from "@/lib/result";
 import { createAuth } from "@/server/auth/config";
 import type { Connection } from "@/server/db/client";
@@ -506,6 +508,311 @@ suite("confirming an address", () => {
     expect((await signIn(ana, anasPassword)).status).toBe(200);
   });
 });
+
+/**
+ * ADR 0008. A person trying passwords at sign-up used to hit "Muitas
+ * tentativas" after five refusals: Better Auth counted every attempt before
+ * the policy ran, and restarted its window on each one. Now a refused
+ * password costs nothing, and the five-a-minute allowance counts accounts.
+ */
+suite("trying passwords at sign-up", () => {
+  const address = "203.0.113.77";
+  const good = "trilha molhada de barro";
+
+  let connection: Connection;
+  let sender: ReturnType<typeof memorySender>;
+
+  beforeAll(async () => {
+    connection = await connectAndMigrate();
+  });
+
+  afterAll(async () => {
+    await connection.close();
+  });
+
+  beforeEach(async () => {
+    await resetDatabase(connection.db);
+    sender = memorySender();
+  });
+
+  /** An auth instance whose breach corpus has seen `leaked` the given number of times. */
+  function authWithCorpus(leaked: Record<string, number> = {}) {
+    return createAuth({
+      database: connection.db,
+      sender,
+      baseUrl: "http://localhost:3000",
+      secret: "test-secret-test-secret-test-secret-32",
+      fetchBreaches: async (url) => {
+        const prefix = String(url).slice(-5);
+        const lines: string[] = [];
+        for (const [password, count] of Object.entries(leaked)) {
+          const hash = (await sha1Hex(password)).toUpperCase();
+          if (hash.startsWith(prefix)) lines.push(`${hash.slice(5)}:${count}`);
+        }
+        lines.push("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:0");
+        return new Response(lines.join("\r\n"));
+      },
+    });
+  }
+
+  const signUp = (
+    auth: ReturnType<typeof createAuth>,
+    body: Record<string, unknown>,
+    headers: Record<string, string> = {},
+  ) =>
+    auth.handler(
+      new Request("http://localhost:3000/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": address, ...headers },
+        body: JSON.stringify(body),
+      }),
+    );
+
+  const check = (auth: ReturnType<typeof createAuth>, password: string) =>
+    auth.handler(
+      new Request("http://localhost:3000/api/auth/password/check", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": address },
+        body: JSON.stringify({ password }),
+      }),
+    );
+
+  it("lets a person try as many refused passwords as they like, then sign up", async () => {
+    const auth = authWithCorpus({ "cafe com leite quente": 250 });
+
+    const refused: number[] = [];
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const password = attempt % 2 === 0 ? "senha123" : "cafe com leite quente";
+      refused.push((await signUp(auth, { name: "Ana", email: "ana@example.com", password })).status);
+    }
+
+    expect(refused.every((status) => status === 400)).toBe(true);
+    expect(await allowanceUsed("signUp", address, connection.db)).toBe(0);
+
+    const accepted = await signUp(auth, { name: "Ana", email: "ana@example.com", password: good });
+    expect(accepted.status).toBe(200);
+    expect(await allowanceUsed("signUp", address, connection.db)).toBe(1);
+  });
+
+  it("still refuses the sixth accepted sign-up in a minute, in pt-BR", async () => {
+    const auth = authWithCorpus();
+
+    const statuses: number[] = [];
+    for (let index = 0; index < 6; index += 1) {
+      const response = await signUp(auth, {
+        name: `Pessoa ${index}`,
+        email: `pessoa${index}@example.com`,
+        password: good,
+      });
+      statuses.push(response.status);
+      if (index === 5) {
+        expect(((await response.json()) as { message?: string }).message).toBe(SIGN_UP_RATE_LIMITED);
+      }
+    }
+
+    expect(statuses).toEqual([200, 200, 200, 200, 200, 429]);
+    // The sixth created nothing and sent nothing.
+    expect(await connection.db.select().from(users)).toHaveLength(5);
+    expect(sender.outbox).toHaveLength(5);
+  });
+
+  /** The owner's decision: refuse what many people chose, not every leak. */
+  it("refuses a password leaked ten times or more, and accepts one leaked fewer", async () => {
+    const auth = authWithCorpus({
+      "cafe com leite quente": 10,
+      "cafe com leite frio": 9,
+    });
+
+    const many = await signUp(auth, {
+      name: "Ana",
+      email: "ana@example.com",
+      password: "cafe com leite quente",
+    });
+    expect(many.status).toBe(400);
+    const refusal = (await many.json()) as { message?: string; code?: string; reason?: string };
+    expect(refusal.message).toBe(PASSWORD_REFUSALS.breached);
+    // The reason travels beside the message, so the form can mark the field.
+    expect(refusal.code).toBe("WEAK_PASSWORD");
+    expect(refusal.reason).toBe("breached");
+
+    const few = await signUp(auth, {
+      name: "Bia",
+      email: "bia@example.com",
+      password: "cafe com leite frio",
+    });
+    expect(few.status).toBe(200);
+  });
+
+  /**
+   * Found in the design review of ADR 0008: the hook judged
+   * `newPassword ?? password`, sign-up accepts extra keys, and it stores
+   * `password`. A weak one beside a strong `newPassword` was stored unjudged.
+   */
+  it("judges the password sign-up stores, whatever else the body carries", async () => {
+    const auth = authWithCorpus();
+
+    const beside = await signUp(auth, {
+      name: "Ana",
+      email: "ana@example.com",
+      password: "senha123",
+      newPassword: good,
+    });
+    const empty = await signUp(auth, {
+      name: "Bia",
+      email: "bia@example.com",
+      password: "senha123",
+      newPassword: "",
+    });
+
+    expect(beside.status).toBe(400);
+    expect(empty.status).toBe(400);
+    expect(await connection.db.select().from(users)).toHaveLength(0);
+  });
+
+  /**
+   * The endpoint's own CSRF check runs after this hook; a hostile page would
+   * otherwise spend its visitor's allowance before being refused.
+   */
+  it("refuses a cross-site sign-up before it costs anything", async () => {
+    const auth = authWithCorpus();
+
+    const response = await signUp(
+      auth,
+      { name: "Ana", email: "ana@example.com", password: good },
+      { "sec-fetch-site": "cross-site", origin: "https://evil.example" },
+    );
+
+    expect(response.status).toBe(403);
+    expect(await allowanceUsed("signUp", address, connection.db)).toBe(0);
+    expect(await connection.db.select().from(users)).toHaveLength(0);
+  });
+
+  /**
+   * A browser without fetch metadata, or a sibling subdomain (which says
+   * "same-site"), still sends its `Origin`: refused before counting, as the
+   * endpoint would refuse it after.
+   */
+  it("refuses an untrusted origin before it costs anything, and lets its own through", async () => {
+    const auth = authWithCorpus();
+    const body = { name: "Ana", email: "ana@example.com", password: good };
+
+    const foreign = await signUp(auth, body, { origin: "https://evil.example" });
+    const sibling = await signUp(auth, body, {
+      origin: "https://app.localhost.example",
+      "sec-fetch-site": "same-site",
+    });
+    expect(foreign.status).toBe(403);
+    expect(sibling.status).toBe(403);
+    expect(await allowanceUsed("signUp", address, connection.db)).toBe(0);
+
+    const own = await signUp(auth, body, {
+      origin: "http://localhost:3000",
+      "sec-fetch-site": "same-origin",
+    });
+    expect(own.status).toBe(200);
+    expect(await allowanceUsed("signUp", address, connection.db)).toBe(1);
+  });
+
+  /** Better Auth's own limiter counts only what arrives over the network. */
+  it("does not count a sign-up the server makes itself, headers or not", async () => {
+    const auth = authWithCorpus();
+
+    for (let index = 0; index < 6; index += 1) {
+      await auth.api.signUpEmail({
+        body: { name: `Pessoa ${index}`, email: `pessoa${index}@example.com`, password: good },
+        headers: new Headers({ "x-forwarded-for": address }),
+      });
+    }
+
+    expect(await connection.db.select().from(users)).toHaveLength(6);
+    expect(await allowanceUsed("signUp", address, connection.db)).toBe(0);
+  });
+
+  it("refuses a password longer than it would store, before counting it", async () => {
+    const auth = authWithCorpus();
+
+    const response = await signUp(auth, {
+      name: "Ana",
+      email: "ana@example.com",
+      password: `${good} `.repeat(6),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await allowanceUsed("signUp", address, connection.db)).toBe(0);
+  });
+
+  describe("the live check", () => {
+    it("answers with a verdict, and only a verdict", async () => {
+      const auth = authWithCorpus({ "cafe com leite quente": 42, "cafe com leite frio": 3 });
+
+      const verdicts: Record<string, unknown> = {};
+      for (const password of ["curta", "senha123", "cafe com leite quente", "cafe com leite frio", good]) {
+        const response = await check(auth, password);
+        expect(response.status).toBe(200);
+        expect(response.headers.get("cache-control")).toContain("no-store");
+        const body = (await response.json()) as Record<string, unknown>;
+        expect(Object.keys(body)).toEqual(["verdict"]);
+        verdicts[password] = body["verdict"];
+      }
+
+      expect(verdicts).toEqual({
+        curta: "too-short",
+        senha123: "too-common",
+        "cafe com leite quente": "breached",
+        "cafe com leite frio": "accepted",
+        [good]: "accepted",
+      });
+    });
+
+    it("says it could not check when the corpus cannot be asked", async () => {
+      const auth = createAuth({
+        database: connection.db,
+        sender,
+        baseUrl: "http://localhost:3000",
+        secret: "test-secret-test-secret-test-secret-32",
+        fetchBreaches: async () => {
+          throw new Error("network is down");
+        },
+      });
+
+      const response = await check(auth, good);
+
+      expect(await response.json()).toEqual({ verdict: "unavailable" });
+    });
+
+    it("spends nothing of the sign-up allowance, and has a limit of its own", async () => {
+      const auth = authWithCorpus();
+
+      const statuses: number[] = [];
+      for (let index = 0; index < 61; index += 1) {
+        statuses.push((await check(auth, "curta")).status);
+      }
+
+      expect(statuses.slice(0, 60).every((status) => status === 200)).toBe(true);
+      expect(statuses.at(-1)).toBe(429);
+      expect(await allowanceUsed("signUp", address, connection.db)).toBe(0);
+      // And the sign-up itself is still open to this connection.
+      expect(
+        (await signUp(auth, { name: "Ana", email: "ana@example.com", password: good })).status,
+      ).toBe(200);
+    });
+
+    it("stores nothing and sends nothing", async () => {
+      const auth = authWithCorpus();
+
+      await check(auth, good);
+
+      expect(await connection.db.select().from(users)).toHaveLength(0);
+      expect(await connection.db.select().from(verifications)).toHaveLength(0);
+      expect(sender.outbox).toHaveLength(0);
+    });
+  });
+});
+
+async function sha1Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 suite("resolving a workspace", () => {
   let connection: Connection;
@@ -1030,6 +1337,26 @@ suite("recovering a password", () => {
 
     // A refused password does not spend the token.
     expect((await reset(token, newPassword)).status).toBe(200);
+  });
+
+  /**
+   * The endpoint reads `body.token || query.token`; the policy read
+   * `body.token ?? query.token`, so an empty token in the body hid the real
+   * one from it, and with it the person's name (ADR 0008).
+   */
+  it("reads the token the way the endpoint does, so the name rule holds", async () => {
+    const token = await requestToken();
+
+    const response = await auth.handler(
+      new Request(`http://localhost:3000/api/auth/reset-password?token=${token}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: "", newPassword: "henrique-zanella" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { message?: string }).message).toContain("nome");
   });
 
   it("sends the link's visitor to the page with the token, or with the error", async () => {

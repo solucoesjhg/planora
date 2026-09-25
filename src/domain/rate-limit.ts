@@ -43,10 +43,21 @@ export type LimitDecision = {
 /**
  * The limits the plan names: sixty writes a minute per person, and ten a
  * minute for the ones that reach somebody else's inbox.
+ *
+ * `signUp` is five accounts a minute per connection, counted only once the
+ * password policy has accepted the password (ADR 0008): a refused password
+ * creates nothing and sends nothing, so it costs nothing. Before, Better Auth
+ * counted every attempt before the policy ran, and a person trying passwords
+ * hit the wall after five refusals.
+ *
+ * Every window here is at most a minute: Better Auth prunes the table it shares
+ * with these counters by age, whatever the key, once rows are older than its
+ * own longest window.
  */
 export const LIMITS = {
   write: { max: 60, windowMs: 60_000 },
   invite: { max: 10, windowMs: 60_000 },
+  signUp: { max: 5, windowMs: 60_000 },
 } as const satisfies Record<string, Limit>;
 
 export type Bucket = keyof typeof LIMITS;
@@ -96,13 +107,14 @@ export function consume(
 }
 
 /**
- * The key one person's allowance is counted under.
+ * The key one allowance is counted under: a person for the write buckets, a
+ * connection's address for sign-up, where there is nobody yet.
  *
  * Per person and per bucket, not per workspace: the limit is there to stop one
  * account from running away, and somebody who belongs to three workspaces has
  * one pair of hands. The prefix keeps our keys from ever colliding with the
  * ones Better Auth writes into the same table for its own endpoints.
  */
-export function limitKey(bucket: Bucket, userId: string): string {
-  return `planora:${bucket}:${userId}`;
+export function limitKey(bucket: Bucket, subject: string): string {
+  return `planora:${bucket}:${subject}`;
 }

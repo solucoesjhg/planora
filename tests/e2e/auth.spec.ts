@@ -113,6 +113,50 @@ test("the login form sends a new link to an address not yet confirmed", async ({
   await expect.poll(() => messagesTo(request, email)).toBe(2);
 });
 
+/**
+ * ADR 0008: the field says what is wrong while the person types, and a
+ * password it knows is refused is never sent — so trying passwords never
+ * spends the sign-up allowance. (The breach lookup is off in this suite; its
+ * verdicts are covered against an injected corpus in the integration tests.)
+ */
+test("the password field answers as the person types, and sends nothing it knows is refused", async ({
+  page,
+}) => {
+  const signUps: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/auth/sign-up/email")) signUps.push(request.url());
+  });
+
+  await page.goto("/register");
+  await page.getByLabel("Nome").fill("Pessoa de Teste");
+  await page.getByLabel("E-mail").fill(uniqueEmail());
+
+  const password = page.getByLabel("Senha");
+  // The line the input is described by: what a person sees under it, and what
+  // a screen reader reads on focus.
+  const status = page.locator(`[id="${await password.getAttribute("aria-describedby")}"]`);
+
+  await password.fill("senha123");
+  await expect(status).toContainText("das mais usadas");
+  await expect(password).toHaveAttribute("aria-invalid", "true");
+
+  await password.fill("pessoa-de-teste-2026");
+  await expect(status).toContainText("seu nome ou e-mail");
+
+  // Pressing the button with a refused password keeps the person on the form.
+  await page.getByRole("button", { name: "Criar conta" }).click();
+  await expect(password).toBeFocused();
+  expect(signUps).toHaveLength(0);
+
+  await password.fill(PASSWORD);
+  await expect(status).toContainText("Boa senha.");
+  await expect(password).not.toHaveAttribute("aria-invalid", "true");
+
+  await page.getByRole("button", { name: "Criar conta" }).click();
+  await expect(page.getByRole("heading", { name: "Confirme seu e-mail" })).toBeVisible();
+  expect(signUps).toHaveLength(1);
+});
+
 test("the front door is the product's, not the framework's", async ({ page }) => {
   await page.goto("/");
 
@@ -156,8 +200,18 @@ test("a forgotten password is replaced through the link in the inbox", async ({
   await expect(page).toHaveURL(/\/reset-password\?token=/);
   await expect(page.getByRole("heading", { name: "Nova senha" })).toBeVisible();
 
+  // The person's own name: only the server knows it here, so the field hears
+  // it at submit — and from then on says so itself (ADR 0008).
+  const field = page.getByLabel("Nova senha");
+  await field.fill("pessoa de teste, de novo");
+  await page.getByRole("button", { name: "Salvar nova senha" }).click();
+  await expect(field).toHaveAttribute("aria-invalid", "true");
+  await expect(
+    page.locator(`[id="${await field.getAttribute("aria-describedby")}"]`),
+  ).toContainText("seu nome ou e-mail");
+
   const replacement = "outra trilha, agora seca";
-  await page.getByLabel("Nova senha").fill(replacement);
+  await field.fill(replacement);
   await page.getByRole("button", { name: "Salvar nova senha" }).click();
   await expect(page.getByRole("heading", { name: "Senha redefinida" })).toBeVisible();
 

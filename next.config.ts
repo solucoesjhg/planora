@@ -1,5 +1,10 @@
 import type { NextConfig } from "next";
 import { securityHeaders, storageOriginOf } from "./src/lib/security-headers";
+import { assertBreachSwitchAllowed } from "./src/server/auth/breach-switch";
+
+// The E2E suite's switch must never reach production: failing the build there
+// leaves the previous deployment serving (ADR 0008).
+assertBreachSwitchAllowed();
 
 /**
  * The security headers are served from here, not from `vercel.json`.

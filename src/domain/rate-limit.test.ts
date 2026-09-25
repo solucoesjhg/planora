@@ -86,6 +86,20 @@ describe("the limits the plan names", () => {
   it("is sixty writes a minute and ten invitations", () => {
     expect(LIMITS.write).toEqual({ max: 60, windowMs: 60_000 });
     expect(LIMITS.invite).toEqual({ max: 10, windowMs: 60_000 });
+    // Five accounts a minute per connection, counted after the password
+    // policy (ADR 0008).
+    expect(LIMITS.signUp).toEqual({ max: 5, windowMs: 60_000 });
+  });
+
+  /**
+   * Better Auth prunes the table these counters share with its own by age,
+   * whatever the key, once rows outlive its longest window — a minute. A
+   * longer window here would be forgotten halfway through.
+   */
+  it("keeps every window to a minute or less", () => {
+    for (const limit of Object.values(LIMITS)) {
+      expect(limit.windowMs).toBeLessThanOrEqual(60_000);
+    }
   });
 });
 

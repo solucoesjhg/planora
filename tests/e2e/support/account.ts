@@ -122,21 +122,31 @@ export async function messagesTo(
   ).length;
 }
 
+/**
+ * The newest message to `email` whose body carries `pattern`.
+ *
+ * Searched by recipient, not read off the inbox's first page: with three
+ * workers sending invitations and notices at once, fifty newer messages can
+ * arrive inside the wait, and the one being waited for used to fall off the
+ * page it was looked for on.
+ */
 async function waitForLink(
   request: APIRequestContext,
   email: string,
   pattern: RegExp,
 ): Promise<string> {
+  const search = `${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:"${email}"`)}&limit=50`;
+
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const list = await request.get(`${MAILPIT}/api/v1/messages?limit=50`);
-    if (list.ok()) {
-      const { messages } = (await list.json()) as MailpitList;
-      const match = messages.find((message) =>
+    const found = await request.get(search);
+    if (found.ok()) {
+      const { messages } = (await found.json()) as MailpitList;
+      const addressed = messages.filter((message) =>
         message.To.some((recipient) => recipient.Address === email),
       );
 
-      if (match) {
-        const detail = await request.get(`${MAILPIT}/api/v1/message/${match.ID}`);
+      for (const message of addressed) {
+        const detail = await request.get(`${MAILPIT}/api/v1/message/${message.ID}`);
         const body = (await detail.json()) as { Text?: string; HTML?: string };
         const url = (body.Text ?? body.HTML ?? "").match(pattern)?.[0];
 

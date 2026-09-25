@@ -665,9 +665,15 @@ Check these in order — each one has already been the cause of a failure here:
 4. **Move a card, then check `activity_logs` has a row** (Supabase → *Table
    Editor*). That is the outbox draining; if it does not, `after()` is not
    running on this deployment.
-5. **Try signing up six times in a minute.** The sixth must be refused. If it
-   is *not*, or if the first is, the rate limiter is not resolving client IPs —
-   see `advanced.ipAddress` in `src/server/auth/config.ts`.
+5. **Try passwords, then accounts.** On `/register`, type `senha123`: the field
+   says it is one of the most used, and pressing *Criar conta* sends nothing.
+   Refused passwords never count (ADR 0008), so ten of them in a row must not
+   bring *Muitos cadastros*. Then create six accounts inside a minute, each
+   with a new address and an accepted password: the sixth must be refused. If
+   it is *not*, or if the first is, the limiter is not resolving client IPs —
+   see `advanced.ipAddress` in `src/server/auth/config.ts`, and look in
+   Supabase at `select key from rate_limits where key like 'planora:signUp:%';`
+   — it must show your own address, not `unresolved`.
 
 ### When something fails
 

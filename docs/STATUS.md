@@ -321,6 +321,24 @@ account tells the mailbox so, and signing in unconfirmed with the right
 password sends a fresh link. The login form answers Better Auth's refusals in
 pt-BR.
 
+**A refused password costs nothing (2026-09-25).** Reported from production:
+almost every password was refused as leaked, and a few tries later the form
+said *Muitas tentativas*. Better Auth counted each sign-up before the policy
+ran, could not give the count back, and reset only after a quiet minute, so
+five attempts at a thinking pace used up the five.
+ADR 0008 moves the policy into `domain/passwords`, refuses only passwords the
+breach corpus has seen ten times or more (the owner's choice), and spends the
+five-a-minute sign-up allowance — now Planora's own, per connection — only once
+a password is accepted. The field checks as the person types, through a
+verdict-only endpoint (`/api/auth/password/check`), and never sends a password
+it knows is refused; the reset form gets the same field. The design review also
+closed a bypass: a weak `password` sent beside a strong `newPassword` was stored
+unjudged. The review of the change found the allowance itself could be run
+past by a burst — `for update` locks no row that does not exist yet — and
+`consumeAllowance` now takes an advisory lock on the key. Sign-ups from an
+untrusted origin are refused before they count, and a production build with
+`DISABLE_BREACH_CHECK` set fails.
+
 ## Next
 
 - The rest of the security audit, in this order — each its own pull request:

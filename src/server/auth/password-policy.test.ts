@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isRefused } from "@/lib/result";
-import {
-  MIN_PASSWORD_LENGTH,
-  checkPassword,
-  checkPasswordShape,
-  isBreached,
-} from "./password-policy";
+import { breachCount, checkPassword } from "./password-policy";
 
 async function sha1Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest(
@@ -17,87 +12,96 @@ async function sha1Hex(value: string): Promise<string> {
     .join("");
 }
 
-const reason = (password: string, identity = {}) => {
-  const decision = checkPasswordShape(password, identity);
-  return isRefused(decision) ? decision.reason : "allowed";
-};
+const response = (body: string, ok = true) =>
+  ({ ok, text: async () => body }) as Response;
 
-describe("length", () => {
-  it(`refuses anything under ${MIN_PASSWORD_LENGTH} characters`, () => {
-    expect(reason("sete123")).toBe("too-short");
-    expect(reason("oito1234")).toBe("allowed");
-  });
-});
+/** A range answering for `password` with `count`, among other lines. */
+async function rangeWith(password: string, count: string, eol = "\r\n"): Promise<string> {
+  const suffix = (await sha1Hex(password)).toUpperCase().slice(5);
+  return [
+    "0000000000000000000000000000000000A:3",
+    `${suffix}:${count}`,
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:0",
+  ].join(eol);
+}
 
-describe("what people actually pick", () => {
-  it("refuses the passwords that top every breach corpus", () => {
-    expect(reason("senha123")).toBe("too-common");
-    expect(reason("password123")).toBe("too-common");
-    expect(reason("brasil123")).toBe("too-common");
-    expect(reason("planora2026")).toBe("too-common");
-  });
-
-  it("sees through accents and capitals", () => {
-    expect(reason("SENHA123")).toBe("too-common");
-    expect(reason("Sênha123")).toBe("too-common");
-  });
-
-  it("refuses a single repeated character and a straight run", () => {
-    expect(reason("aaaaaaaa")).toBe("too-common");
-    expect(reason("12345678")).toBe("too-common");
-    expect(reason("abcdefgh")).toBe("too-common");
-    expect(reason("87654321")).toBe("too-common");
-  });
-
-  it("refuses the person's own name or address inside the password", () => {
-    const identity = { email: "henrique@example.com", name: "Henrique Zanella" };
-
-    expect(reason("henrique2026", identity)).toBe("contains-identity");
-    expect(reason("xxzanellaxx", identity)).toBe("contains-identity");
-    // A short first name is not enough of a signal to refuse on.
-    expect(reason("anaconda-verde", { name: "Ana" })).toBe("allowed");
-  });
-
-  it("allows a long passphrase with no symbols at all", () => {
-    // The point of the policy: this is stronger than "Senha@123", and every
-    // composition rule ever written would have rejected it.
-    expect(reason("cavalo bateria grampo correto")).toBe("allowed");
-  });
-});
-
-describe("the breach check", () => {
-  const response = (body: string, ok = true) =>
-    ({ ok, text: async () => body }) as Response;
-
-  it("finds the password when its hash suffix is in the range", async () => {
+describe("the breach count", () => {
+  it("reads the count on the line with the password's hash suffix", async () => {
     // SHA-1("password") = 5BAA6 1E4C9B93F3F0682250B6CF8331B7EE68FD8
-    const found = await isBreached("password", {
-      fetch: async () => response("1E4C9B93F3F0682250B6CF8331B7EE68FD8:9999"),
+    const count = await breachCount("password", {
+      fetch: async (url) => {
+        expect(String(url)).toBe("https://api.pwnedpasswords.com/range/5BAA6");
+        return response("1e4c9b93f3f0682250b6cf8331b7ee68fd8:9999");
+      },
     });
 
-    expect(found).toBe(true);
+    expect(count).toBe(9999);
   });
 
-  it("clears a password whose suffix is absent", async () => {
-    const found = await isBreached("uma frase que ninguem usou", {
+  it("reads the lines the service actually sends, ended by CRLF", async () => {
+    const passphrase = "trilha molhada de barro";
+    const count = await breachCount(passphrase, {
+      fetch: async () => response(await rangeWith(passphrase, "12")),
+    });
+
+    expect(count).toBe(12);
+  });
+
+  it("is zero when the suffix is absent", async () => {
+    const count = await breachCount("uma frase que ninguem usou", {
       fetch: async () => response("0000000000000000000000000000000000A:3"),
     });
 
-    expect(found).toBe(false);
+    expect(count).toBe(0);
   });
 
-  it("fails open when the service is down, rather than blocking signup", async () => {
+  /**
+   * `Add-Padding: true` fills the range with made-up suffixes counted zero. The
+   * old check refused any matching line, whatever its count.
+   */
+  it("reads a padding line as zero", async () => {
+    const passphrase = "trilha molhada de barro";
+    const count = await breachCount(passphrase, {
+      fetch: async () => response(await rangeWith(passphrase, "0")),
+    });
+
+    expect(count).toBe(0);
+  });
+
+  it("cannot be talked into a refusal by an answer it does not understand", async () => {
+    const passphrase = "trilha molhada de barro";
+
+    for (const garbage of ["", "-3", "1e9", "12abc", "99999999999999999999"]) {
+      const count = await breachCount(passphrase, {
+        fetch: async () => response(await rangeWith(passphrase, garbage)),
+      });
+      expect(count, `count ${JSON.stringify(garbage)}`).toBeNull();
+    }
+  });
+
+  it("is unknown when the service is down, rather than a refusal", async () => {
     expect(
-      await isBreached("password", {
+      await breachCount("password", {
         fetch: async () => {
           throw new Error("network is down");
         },
       }),
-    ).toBe(false);
+    ).toBeNull();
 
-    expect(
-      await isBreached("password", { fetch: async () => response("", false) }),
-    ).toBe(false);
+    expect(await breachCount("password", { fetch: async () => response("", false) })).toBeNull();
+  });
+
+  it("asks for padding and refuses to follow a redirect elsewhere", async () => {
+    let init: RequestInit | undefined;
+    await breachCount("password", {
+      fetch: async (_url, options) => {
+        init = options;
+        return response("");
+      },
+    });
+
+    expect(new Headers(init?.headers).get("add-padding")).toBe("true");
+    expect(init?.redirect).toBe("error");
   });
 });
 
@@ -112,33 +116,42 @@ describe("checkPassword", () => {
     expect(isRefused(decision) && decision.reason).toBe("too-common");
   });
 
-  it("refuses a breached password that passes every other rule", async () => {
-    // A passphrase the shape rules are happy with, answered by a range that
-    // contains its own hash suffix.
+  it("refuses a password many people have leaked", async () => {
     const passphrase = "trilha molhada de barro";
-    const suffix = (await sha1Hex(passphrase)).toUpperCase().slice(5);
 
-    const decision = await checkPassword(
-      passphrase,
-      {},
-      {
-        fetch: async () =>
-          ({ ok: true, text: async () => `${suffix}:42` }) as Response,
-      },
-    );
+    const decision = await checkPassword(passphrase, {}, {
+      fetch: async () => response(await rangeWith(passphrase, "42")),
+    });
 
     expect(isRefused(decision) && decision.reason).toBe("breached");
   });
 
-  it("lets an unbreached passphrase through", async () => {
-    const decision = await checkPassword(
-      "trilha molhada de barro",
-      {},
-      {
-        fetch: async () =>
-          ({ ok: true, text: async () => "ABCDEF0123456789ABCDEF0123456789ABC:1" }) as Response,
+  /** ADR 0008: seen a few times is the long tail, not a guessable password. */
+  it("accepts a password only a few people have leaked", async () => {
+    const passphrase = "trilha molhada de barro";
+
+    const decision = await checkPassword(passphrase, {}, {
+      fetch: async () => response(await rangeWith(passphrase, "9")),
+    });
+
+    expect(isRefused(decision)).toBe(false);
+  });
+
+  it("accepts when the corpus cannot be asked", async () => {
+    const decision = await checkPassword("trilha molhada de barro", {}, {
+      fetch: async () => response("", false),
+    });
+
+    expect(isRefused(decision)).toBe(false);
+  });
+
+  it("skips the lookup when breach checks are off", async () => {
+    const decision = await checkPassword("trilha molhada de barro", {}, {
+      checkBreaches: false,
+      fetch: async () => {
+        throw new Error("must not be called");
       },
-    );
+    });
 
     expect(isRefused(decision)).toBe(false);
   });

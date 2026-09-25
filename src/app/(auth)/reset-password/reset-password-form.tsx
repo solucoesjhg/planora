@@ -4,8 +4,13 @@ import { KeyRound } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { Button, buttonClassName } from "@/components/ui/button";
-import { Field, Input } from "@/components/ui/field";
+import {
+  PasswordField,
+  passwordRefusalOf,
+  usePasswordCheck,
+} from "@/features/auth/password-field";
 import { authClient } from "@/lib/auth-client";
+import { RESET_RATE_LIMITED } from "@/lib/strings";
 
 /**
  * The second half of recovery: a new password against the token from the
@@ -23,17 +28,28 @@ export function ResetPasswordForm({
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [stale, setStale] = useState(expired);
+  // No name or address here — the form only holds the token. The server still
+  // refuses the person's own name at submit (ADR 0008).
+  const password = usePasswordCheck({});
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token) return;
-    setBusy(true);
     setError(null);
 
-    const result = await authClient.resetPassword({
-      newPassword: String(new FormData(event.currentTarget).get("password") ?? ""),
-      token,
-    });
+    const passwordInput = event.currentTarget.elements.namedItem(
+      "password",
+    ) as HTMLInputElement | null;
+    // What the input holds now, not what the page has heard: text typed before
+    // it hydrated is only in the input.
+    const typed = passwordInput?.value ?? "";
+    if (password.settle(typed)) {
+      passwordInput?.focus();
+      return;
+    }
+
+    setBusy(true);
+    const result = await authClient.resetPassword({ newPassword: typed, token });
 
     setBusy(false);
     if (result.error) {
@@ -42,9 +58,18 @@ export function ResetPasswordForm({
         setStale(true);
         return;
       }
+      // The server refused the password — most often the person's own name,
+      // which only the server knows here. The field says so, and will not
+      // send it again.
+      const refusal = passwordRefusalOf(result.error);
+      if (refusal) {
+        password.refuse(typed, refusal);
+        passwordInput?.focus();
+        return;
+      }
       setError(
         result.error.status === 429
-          ? "Muitas tentativas seguidas. Espere um minuto e tente de novo."
+          ? RESET_RATE_LIMITED
           : (result.error.message ?? "Não foi possível redefinir a senha."),
       );
       return;
@@ -97,22 +122,12 @@ export function ResetPasswordForm({
       </header>
 
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
-        <Field
+        <PasswordField
           label="Nova senha"
-          hint="Ao menos 8 caracteres. Uma frase que só você diria vale mais que símbolos."
-        >
-          {(id) => (
-            <Input
-              id={id}
-              name="password"
-              type="password"
-              required
-              minLength={8}
-              autoComplete="new-password"
-              autoFocus
-            />
-          )}
-        </Field>
+          check={password}
+          autoComplete="new-password"
+          autoFocus
+        />
 
         {error ? (
           <p role="alert" className="text-[13px] text-danger">
