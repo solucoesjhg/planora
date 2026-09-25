@@ -37,20 +37,40 @@ export function Textarea({ className, ...props }: TextareaProps) {
   );
 }
 
+/** A line under the control that changes as the person types. */
+export type FieldStatus = {
+  readonly tone: "neutral" | "success" | "danger";
+  readonly text: string;
+};
+
 export type FieldProps = {
   readonly label: string;
   readonly hint?: string;
   readonly error?: string;
+  /**
+   * A live line in place of the hint — the password field's verdict, for
+   * one. It is announced politely: a line that changes on every keystroke
+   * must not interrupt the person typing.
+   */
+  readonly status?: FieldStatus;
   readonly className?: string;
-  readonly children: (id: string) => ReactNode;
+  /** `describedBy` names the line under the control, when there is one. */
+  readonly children: (id: string, describedBy?: string) => ReactNode;
+};
+
+const STATUS_TONE: Record<FieldStatus["tone"], string> = {
+  neutral: "text-subtle",
+  success: "text-sage",
+  danger: "text-danger",
 };
 
 /**
  * Label, control, and the two lines that explain it. The control is a render
  * prop so the label's `for` and the field's `id` cannot drift apart.
  */
-export function Field({ label, hint, error, className, children }: FieldProps) {
+export function Field({ label, hint, error, status, className, children }: FieldProps) {
   const id = useId();
+  const describedBy = status ? `${id}-status` : undefined;
 
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
@@ -58,11 +78,20 @@ export function Field({ label, hint, error, className, children }: FieldProps) {
         {label}
       </label>
 
-      {children(id)}
+      {children(id, describedBy)}
 
       {error ? (
         <p role="alert" className="text-xs text-danger">
           {error}
+        </p>
+      ) : status ? (
+        <p
+          id={describedBy}
+          aria-live="polite"
+          aria-atomic="true"
+          className={cn("text-xs", STATUS_TONE[status.tone])}
+        >
+          {status.text}
         </p>
       ) : hint ? (
         <p className="text-xs text-subtle">{hint}</p>

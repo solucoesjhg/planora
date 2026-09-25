@@ -5,7 +5,12 @@ import { consume, limitKey, LIMITS, type Bucket } from "@/domain/rate-limit";
 import { newId } from "@/lib/id";
 import { isRefused, refused, type Result } from "@/lib/result";
 import type { TenantContext } from "@/server/auth/tenant";
-import { getSystemDatabase, withTenant, type Transaction } from "@/server/db/client";
+import {
+  getSystemDatabase,
+  withTenant,
+  type Database,
+  type Transaction,
+} from "@/server/db/client";
 import { rateLimits } from "@/server/db/schema";
 
 /**
@@ -31,12 +36,13 @@ export type Limited<Failure extends string> = Failure | "rate-limited";
 
 export async function consumeAllowance(
   bucket: Bucket,
-  userId: string,
+  subject: string,
   now = Date.now(),
+  database: Database = getSystemDatabase(),
 ): Promise<Result<undefined, "rate-limited">> {
-  const key = limitKey(bucket, userId);
+  const key = limitKey(bucket, subject);
 
-  return getSystemDatabase().transaction(async (tx) => {
+  return database.transaction(async (tx) => {
     const [stored] = await tx
       .select({ count: rateLimits.count, openedAt: rateLimits.lastRequest })
       .from(rateLimits)
@@ -89,11 +95,15 @@ export async function writing<Value, Failure extends string>(
  * How many requests are left in the current window, for a test to assert on
  * without reaching into the table itself.
  */
-export async function allowanceUsed(bucket: Bucket, userId: string): Promise<number> {
-  const [row] = await getSystemDatabase()
+export async function allowanceUsed(
+  bucket: Bucket,
+  subject: string,
+  database: Database = getSystemDatabase(),
+): Promise<number> {
+  const [row] = await database
     .select({ count: rateLimits.count })
     .from(rateLimits)
-    .where(eq(rateLimits.key, limitKey(bucket, userId)));
+    .where(eq(rateLimits.key, limitKey(bucket, subject)));
   return row?.count ?? 0;
 }
 

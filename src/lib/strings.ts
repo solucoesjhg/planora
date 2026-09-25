@@ -19,6 +19,7 @@ import type {
   Verdict,
 } from "@/domain/health";
 import type { Phase, Priority } from "@/domain/types";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, type PasswordRefusal } from "@/domain/passwords";
 
 export const PHASE_LABELS: Record<Phase, string> = {
   planning: "Planejamento",
@@ -205,3 +206,44 @@ export const SIGN_IN_REFUSED = {
     "Este e-mail ainda não foi confirmado. Enviamos um link novo para ele: abra-o e entre por lá.",
   FALLBACK: "Não foi possível entrar. Tente de novo em instantes.",
 } as const;
+
+/**
+ * Why a password was refused, by the reason the policy names
+ * (`src/domain/passwords.ts`, ADR 0008). The form shows it as the person types;
+ * the server answers a submit with the same words.
+ */
+export const PASSWORD_REFUSALS: Record<PasswordRefusal, string> = {
+  "too-short": `Use ao menos ${MIN_PASSWORD_LENGTH} caracteres.`,
+  "too-long": `Use no máximo ${MAX_PASSWORD_LENGTH} caracteres.`,
+  "too-common": "Esta senha é uma das mais usadas do mundo. Escolha outra.",
+  "contains-identity": "Evite usar seu nome ou e-mail dentro da senha.",
+  // Not "one you never used": ten or more appearances means many people chose
+  // it, not that this person did.
+  breached:
+    "Esta senha aparece muitas vezes em vazamentos públicos: é das primeiras que um invasor tenta. Escolha outra.",
+};
+
+/** What the password field says while nothing is wrong, or while it checks. */
+export const PASSWORD_FEEDBACK = {
+  hint: "Ao menos 8 caracteres. Uma frase que só você diria vale mais que símbolos.",
+  checking: "Conferindo se esta senha aparece em vazamentos…",
+  accepted: "Senha aceita.",
+  /** The breach corpus could not be asked; the server decides at submit. */
+  unavailable:
+    "Não deu para consultar os vazamentos agora. A senha será conferida quando você enviar.",
+} as const;
+
+/**
+ * The sign-up allowance counts accounts, not attempts (ADR 0008): a refused
+ * password never spends it, so this is only ever read after five accepted
+ * sign-ups from one connection inside a minute.
+ */
+export const SIGN_UP_RATE_LIMITED =
+  "Muitos cadastros a partir desta conexão em pouco tempo. Espere um minuto e tente de novo.";
+
+/**
+ * The reset form keeps a counted limit: it guards the link's token, and it is
+ * reached once per account (ADR 0008).
+ */
+export const RESET_RATE_LIMITED =
+  "Muitas tentativas seguidas. Espere um minuto e tente de novo.";

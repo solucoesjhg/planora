@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
+import { PasswordField, usePasswordCheck } from "@/features/auth/password-field";
 import { authClient, signUp } from "@/lib/auth-client";
+import { RATE_LIMITED, SIGN_UP_RATE_LIMITED } from "@/lib/strings";
 
 /**
  * `next` is where the verification link should land — the invitation somebody
@@ -19,18 +21,30 @@ export function RegisterForm({ next }: { next: string }) {
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState("");
   const [resend, setResend] = useState<"idle" | "sending" | "sent">("idle");
+  // The name and address as typed: the password may not contain them, and the
+  // field says so before the server has to (ADR 0008).
+  const [identity, setIdentity] = useState({ name: "", email: "" });
+  const password = usePasswordCheck(identity);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setBusy(true);
     setError(null);
 
-    const form = new FormData(event.currentTarget);
-    const address = String(form.get("email") ?? "");
+    const form = event.currentTarget;
+    // A password the field already knows is refused is not sent: the field
+    // says why, and the person keeps their attempts.
+    if (password.settle()) {
+      (form.elements.namedItem("password") as HTMLInputElement | null)?.focus();
+      return;
+    }
+
+    setBusy(true);
+    const data = new FormData(form);
+    const address = String(data.get("email") ?? "");
     const result = await signUp.email({
-      name: String(form.get("name") ?? ""),
+      name: String(data.get("name") ?? ""),
       email: address,
-      password: String(form.get("password") ?? ""),
+      password: password.password,
       // Travels into the verification link, so the link lands here.
       callbackURL: next,
     });
@@ -42,7 +56,7 @@ export function RegisterForm({ next }: { next: string }) {
       // into the same wall.
       setError(
         result.error.status === 429
-          ? "Muitas tentativas seguidas. Espere um minuto e tente de novo."
+          ? SIGN_UP_RATE_LIMITED
           : (result.error.message ?? "Não foi possível criar a conta."),
       );
       return;
@@ -68,7 +82,7 @@ export function RegisterForm({ next }: { next: string }) {
       setResend("idle");
       setError(
         result.error.status === 429
-          ? "Muitas tentativas seguidas. Espere um minuto e tente de novo."
+          ? RATE_LIMITED
           : "O e-mail não pôde ser enviado. O log do servidor diz o motivo.",
       );
       return;
@@ -127,30 +141,37 @@ export function RegisterForm({ next }: { next: string }) {
 
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <Field label="Nome">
-          {(id) => <Input id={id} name="name" required autoComplete="name" />}
+          {(id) => (
+            <Input
+              id={id}
+              name="name"
+              required
+              autoComplete="name"
+              value={identity.name}
+              onChange={(event) =>
+                setIdentity((current) => ({ ...current, name: event.target.value }))
+              }
+            />
+          )}
         </Field>
 
         <Field label="E-mail">
           {(id) => (
-            <Input id={id} name="email" type="email" required autoComplete="email" />
-          )}
-        </Field>
-
-        <Field
-          label="Senha"
-          hint="Ao menos 8 caracteres. Uma frase que só você diria vale mais que símbolos."
-        >
-          {(id) => (
             <Input
               id={id}
-              name="password"
-              type="password"
+              name="email"
+              type="email"
               required
-              minLength={8}
-              autoComplete="new-password"
+              autoComplete="email"
+              value={identity.email}
+              onChange={(event) =>
+                setIdentity((current) => ({ ...current, email: event.target.value }))
+              }
             />
           )}
         </Field>
+
+        <PasswordField label="Senha" check={password} autoComplete="new-password" />
 
         {error ? (
           <p role="alert" className="text-[13px] text-danger">

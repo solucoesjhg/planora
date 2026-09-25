@@ -8,11 +8,19 @@
 
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { APIError, createAuthMiddleware } from "better-auth/api";
+import { APIError, createAuthMiddleware, getIP } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { and, eq } from "drizzle-orm";
+import {
+  type Identity,
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+} from "@/domain/passwords";
 import { CONFIRMATION_HEADER, confirmationPath } from "@/lib/confirmation-link";
 import { newId } from "@/lib/id";
+import { PASSWORD_CHECK_PATH } from "@/lib/password-check";
+import { isRefused } from "@/lib/result";
+import { PASSWORD_REFUSALS, SIGN_UP_RATE_LIMITED } from "@/lib/strings";
 import { getSystemDatabase, type Database } from "@/server/db/client";
 import * as schema from "@/server/db/schema";
 import { senderFromEnvironment, type EmailSender } from "@/server/email/sender";
@@ -22,16 +30,11 @@ import {
   verificationEmail,
 } from "@/server/email/templates";
 import { ensurePersonalWorkspace } from "@/server/modules/workspaces/repository";
+import { consumeAllowance } from "@/server/limits";
 import { confirmBeforeSignIn } from "./confirmation";
-import {
-  MIN_PASSWORD_LENGTH,
-  PASSWORD_MESSAGES,
-  checkPassword,
-} from "./password-policy";
+import { passwordCheck } from "./password-check";
+import { type BreachLookup, checkPassword } from "./password-policy";
 import { authSecret } from "./secret";
-
-/** The endpoints that accept a password Better Auth is about to store. */
-const PASSWORD_PATHS = ["/sign-up/email", "/change-password", "/reset-password"];
 
 /** How long a password-reset link works, in seconds. The email says so too. */
 export const RESET_TOKEN_TTL = 3600;
@@ -43,9 +46,11 @@ export type AuthOptions = {
   readonly secret: string;
   /**
    * The breach check reaches api.pwnedpasswords.com. Tests turn it off so the
-   * suite neither depends on the network nor spends somebody else's quota.
+   * suite neither depends on the network nor spends somebody else's quota —
+   * or hand it a corpus of their own through `fetchBreaches`.
    */
   readonly checkBreaches?: boolean;
+  readonly fetchBreaches?: typeof fetch;
 };
 
 export function createAuth({
@@ -54,7 +59,14 @@ export function createAuth({
   baseUrl,
   secret,
   checkBreaches = true,
+  fetchBreaches,
 }: AuthOptions) {
+  const policy: PasswordPolicy = {
+    database,
+    checkBreaches,
+    lookup: fetchBreaches ? { fetch: fetchBreaches } : {},
+  };
+
   return betterAuth({
     baseURL: baseUrl,
     secret,
@@ -86,6 +98,7 @@ export function createAuth({
       enabled: true,
       requireEmailVerification: true,
       minPasswordLength: MIN_PASSWORD_LENGTH,
+      maxPasswordLength: MAX_PASSWORD_LENGTH,
       /**
        * Password recovery. The token is 24 random characters stored in
        * `verifications` and consumed on use — unlike the verification link,
@@ -189,7 +202,21 @@ export function createAuth({
       max: 100,
       customRules: {
         "/sign-in/email": { window: 60, max: 10 },
-        "/sign-up/email": { window: 60, max: 5 },
+        /**
+         * Only an outer bound against scripts. Better Auth counts a request
+         * here before the body is read, and cannot give a count back, so a
+         * refused password used to spend one of five attempts a minute — and
+         * since its window restarts on every request, a person who kept
+         * trying never got out (ADR 0008). The real allowance, five accounts a
+         * minute, is Planora's own and is spent after the password policy, in
+         * the hook below. The form never sends a password it knows is
+         * refused, so a person does not reach sixty.
+         */
+        "/sign-up/email": { window: 60, max: 60 },
+        // The live check the forms call as the person types (ADR 0008). A
+        // debounced field sends a few a minute; a refusal here only means the
+        // form says it could not check, and the submit decides.
+        [PASSWORD_CHECK_PATH]: { window: 60, max: 60 },
         "/request-password-reset": { window: 60, max: 5 },
         // Ten a minute is plenty for honest retries at a refused password and
         // nothing at all against a 24-character token.
@@ -214,10 +241,15 @@ export function createAuth({
           return;
         }
 
-        await holdToPasswordPolicy(ctx, checkBreaches);
+        if (ctx.path === "/sign-up/email") return admitSignUp(ctx, policy);
+
+        if (ctx.path === "/reset-password" || ctx.path === "/change-password") {
+          return holdNewPasswordToPolicy(ctx, policy);
+        }
       }),
     },
-    plugins: [nextCookies()],
+    // Before nextCookies(), which has to stay last.
+    plugins: [passwordCheck(policy), nextCookies()],
   });
 }
 
@@ -225,42 +257,111 @@ export type Auth = ReturnType<typeof createAuth>;
 
 type HookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
 
+type PasswordPolicy = {
+  readonly database: Database;
+  readonly checkBreaches: boolean;
+  readonly lookup: BreachLookup;
+};
+
 /**
- * The password policy runs before the request that would store it. It checks
- * length, a blocklist of what people actually pick, the person's own name and
- * address, and — best effort — the breach corpus. What it deliberately does
- * not do is demand an uppercase, a digit and a symbol: that rule produces
+ * The password policy runs before the request that would store it
+ * (`src/domain/passwords.ts`, ADR 0008). It checks length, a blocklist of what
+ * people actually pick, the person's own name and address, and — best effort —
+ * whether the breach corpus shows many people chose it. What it deliberately
+ * does not do is demand an uppercase, a digit and a symbol: that rule produces
  * `Senha@123`, which is in every breach list.
  */
-async function holdToPasswordPolicy(ctx: HookContext, checkBreaches: boolean): Promise<void> {
-  if (!PASSWORD_PATHS.includes(ctx.path)) return;
+async function refuseWeakPassword(
+  password: string,
+  identity: Identity,
+  policy: PasswordPolicy,
+): Promise<void> {
+  const decision = await checkPassword(password, identity, {
+    checkBreaches: policy.checkBreaches,
+    ...policy.lookup,
+  });
 
-  const body = (ctx.body ?? {}) as {
-    password?: string;
-    newPassword?: string;
-    email?: string;
-    name?: string;
-    token?: string;
-  };
-  const password = body.newPassword ?? body.password;
-  if (!password) return;
-
-  // A reset carries no name or address, only the token; the person is behind
-  // it in the verification row, and the policy should refuse their own name in
-  // the new password as it does at sign-up.
-  const identity =
-    ctx.path === "/reset-password"
-      ? await identityBehindResetToken(ctx, body.token ?? ctx.query?.token)
-      : { email: body.email, name: body.name };
-
-  const decision = await checkPassword(password, identity, { checkBreaches });
-
-  if (decision.kind === "refused") {
+  if (isRefused(decision)) {
     throw new APIError("BAD_REQUEST", {
-      message: PASSWORD_MESSAGES[decision.reason],
+      message: PASSWORD_REFUSALS[decision.reason],
       code: "WEAK_PASSWORD",
     });
   }
+}
+
+/**
+ * Sign-up, in the order that makes a refusal free (ADR 0008).
+ *
+ * 1. The password sign-up stores is `body.password`, and that is the one
+ *    judged. The hook used to judge `newPassword ?? password` for every path;
+ *    sign-up accepts extra keys, so a weak `password` sent beside a strong
+ *    `newPassword` was stored unjudged.
+ * 2. A cross-site request is refused before it costs anything. The endpoint's
+ *    own CSRF check refuses it too, but only after this hook — by then a
+ *    hostile page would have spent its visitor's allowance.
+ * 3. The policy. A refusal throws here, and nothing has been counted.
+ * 4. The allowance: five accepted sign-ups a minute per connection, which is
+ *    what bounds accounts and the messages sign-up sends. A call from the
+ *    server itself, with no request, is not counted — as Better Auth's own
+ *    limiter does not count it.
+ */
+async function admitSignUp(ctx: HookContext, policy: PasswordPolicy): Promise<void> {
+  const body = (ctx.body ?? {}) as { password?: unknown; email?: unknown; name?: unknown };
+  // Not a string: Better Auth refuses it on its own a moment later.
+  if (typeof body.password !== "string") return;
+
+  if (ctx.request?.headers.get("sec-fetch-site") === "cross-site") {
+    throw new APIError("FORBIDDEN", { message: "Invalid origin", code: "INVALID_ORIGIN" });
+  }
+
+  await refuseWeakPassword(
+    body.password,
+    { email: stringOrNothing(body.email), name: stringOrNothing(body.name) },
+    policy,
+  );
+
+  const source = ctx.request ?? ctx.headers;
+  if (!source) return;
+
+  // The address Better Auth's own limiter counts, resolved the same way. When
+  // it cannot be resolved, every such request shares one key — closed rather
+  // than open, as Better Auth does.
+  const address = getIP(source, ctx.context.options) ?? "unresolved";
+  const allowance = await consumeAllowance("signUp", address, Date.now(), policy.database);
+
+  if (isRefused(allowance)) {
+    throw new APIError("TOO_MANY_REQUESTS", {
+      message: SIGN_UP_RATE_LIMITED,
+      code: "RATE_LIMITED",
+    });
+  }
+}
+
+/**
+ * Reset and change: the password stored is `body.newPassword`, and that is the
+ * one judged. A reset carries no name or address, only the token; the person
+ * is behind it in the verification row, and the policy refuses their own name
+ * in the new password as it does at sign-up. The token is read the way the
+ * endpoint reads it — the body's, unless empty, then the query's — so an empty
+ * one in the body cannot hide the real one from the policy.
+ *
+ * The reset keeps Better Auth's counted limit: it is what guards the link's
+ * token, and the policy's answer there depends on whose token it is.
+ */
+async function holdNewPasswordToPolicy(ctx: HookContext, policy: PasswordPolicy): Promise<void> {
+  const body = (ctx.body ?? {}) as { newPassword?: unknown; token?: unknown };
+  if (typeof body.newPassword !== "string") return;
+
+  const identity =
+    ctx.path === "/reset-password"
+      ? await identityBehindResetToken(ctx, body.token || ctx.query?.token)
+      : {};
+
+  await refuseWeakPassword(body.newPassword, identity, policy);
+}
+
+function stringOrNothing(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 /**
@@ -289,13 +390,20 @@ let instance: Auth | null = null;
 export function getAuth(): Auth {
   if (instance) return instance;
 
+  const disableBreachCheck = process.env["DISABLE_BREACH_CHECK"] === "1";
+  // The E2E suite turns the breach lookup off so it stays hermetic. A
+  // production deployment that inherited the switch would silently accept the
+  // most leaked passwords there are, so it refuses to start instead.
+  if (disableBreachCheck && process.env["VERCEL_ENV"] === "production") {
+    throw new Error("DISABLE_BREACH_CHECK must not be set in production");
+  }
+
   instance = createAuth({
     database: getSystemDatabase(),
     sender: senderFromEnvironment(),
     baseUrl: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
     secret: authSecret(),
-    // The E2E suite turns the breach lookup off so it stays hermetic.
-    checkBreaches: process.env["DISABLE_BREACH_CHECK"] !== "1",
+    checkBreaches: !disableBreachCheck,
   });
 
   return instance;
