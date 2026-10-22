@@ -1,7 +1,13 @@
 import { devices } from "@playwright/test";
 import { test, expect } from "./support/test";
 import { registerAndVerify } from "./support/account";
-import { columnOf, columnWithPhase, drag, openExampleBoard } from "./support/board";
+import {
+  columnOf,
+  columnWithPhase,
+  drag,
+  openExampleBoard,
+  restingBox,
+} from "./support/board";
 import { activityCount, pendingEventCount } from "./support/database";
 
 /**
@@ -254,16 +260,24 @@ test.describe("the board on a phone", () => {
     context,
   }) => {
     const cdp = await context.newCDPSession(page);
+    const held = page.locator('[data-testid="task-card"][data-held="true"]');
     const finger = async (
       from: { x: number; y: number },
       to: { x: number; y: number },
-      holdMs: number,
+      { hold }: { hold: boolean },
     ) => {
       await cdp.send("Input.dispatchTouchEvent", {
         type: "touchStart",
         touchPoints: [{ x: from.x, y: from.y }],
       });
-      await page.waitForTimeout(holdMs);
+      if (hold) {
+        // The hold is over when the board says the card is in hand, not when
+        // a timer in the runner says so. The page's 250ms and the runner's
+        // 350ms used to be raced, and on a loaded machine the page lost: the
+        // first move arrived before the sensor had picked anything up, went
+        // past its tolerance, and cancelled the press instead of carrying.
+        await expect(held, "the long press never picked the card up").toBeVisible();
+      }
       for (let step = 1; step <= 12; step += 1) {
         await cdp.send("Input.dispatchTouchEvent", {
           type: "touchMove",
@@ -289,7 +303,7 @@ test.describe("the board on a phone", () => {
     // A swipe, straight away: the strip moves, the card stays where it was.
     // Past half a column, because the strip snaps and a synthetic finger has
     // no flick for the snap to read; a real thumb's momentum carries it.
-    await finger(middle, { x: middle.x - 280, y: middle.y }, 0);
+    await finger(middle, { x: middle.x - 280, y: middle.y }, { hold: false });
     await expect.poll(() => strip.evaluate((element) => element.scrollLeft)).toBeGreaterThan(100);
     expect(await columnOf(page, "limpeza")).toBe("planning");
 
@@ -304,15 +318,22 @@ test.describe("the board on a phone", () => {
     await strip.evaluate((element) => {
       element.scrollLeft = 0;
     });
+    // The row of tabs follows the open column with a smooth scroll of its own
+    // (PhaseTabs), and it moved twice: with the swipe, and back again now. A
+    // tab measured mid-scroll is a target the finger arrives at after it has
+    // gone, so the row has to have come to rest first.
+    await expect(page.getByRole("tab", { name: /Planejamento/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    const tab = await restingBox(page.locator('[data-tab-phase="execution"]'));
     const again = await card.boundingBox();
     if (!again) throw new Error("could not measure the card");
-    const tab = await page.locator('[data-tab-phase="execution"]').boundingBox();
-    if (!tab) throw new Error("could not measure the phase tab");
 
     await finger(
       { x: again.x + again.width / 2, y: again.y + 20 },
       { x: tab.x + tab.width / 2, y: tab.y + tab.height / 2 },
-      350,
+      { hold: true },
     );
     await expect.poll(() => columnOf(page, "limpeza")).toBe("execution");
   });

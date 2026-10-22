@@ -1,11 +1,33 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { LAST_BOARD_COOKIE } from "@/lib/last-board";
 
 /** Driving the board from a test: opening a project, and moving a card. */
 
 export async function openExampleBoard(page: Page): Promise<void> {
   await page.goto("/projects");
   await page.getByRole("link", { name: /Exemplo/ }).click();
+  await boardIsLive(page);
+}
+
+/**
+ * The board on screen, and listening.
+ *
+ * Visible is not enough: a page loaded fresh shows the server's markup before
+ * React has attached a single listener to it, and a press that lands then is a
+ * press on a picture. The island's effects run once it is live, and one of
+ * them leaves this board's id in a cookie (lib/last-board.ts) — so that cookie,
+ * for the project in the address bar, is the sign.
+ */
+export async function boardIsLive(page: Page): Promise<void> {
   await expect(page.getByTestId("board-scroller")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate((name) => {
+        const projectId = location.pathname.split("/")[2];
+        return document.cookie.split("; ").includes(`${name}=${projectId}`);
+      }, LAST_BOARD_COOKIE),
+    )
+    .toBe(true);
 }
 
 /** Which phase's column a card sits in, by its title. */
@@ -19,6 +41,35 @@ export async function columnOf(page: Page, title: string): Promise<string | null
 
 export function columnWithPhase(page: Page, phase: string): Locator {
   return page.locator(`[data-column-phase="${phase}"]`);
+}
+
+type Box = { x: number; y: number; width: number; height: number };
+
+/**
+ * Where an element is once it has stopped moving: the same box on two reads
+ * at least a poll interval apart. For a target inside something that scrolls
+ * smoothly on its own, where one read can land mid-animation.
+ */
+export async function restingBox(locator: Locator): Promise<Box> {
+  const seen: { last: Box | null } = { last: null };
+  await expect
+    .poll(
+      async () => {
+        const box = await locator.boundingBox();
+        const before = seen.last;
+        seen.last = box;
+        return (
+          box !== null &&
+          before !== null &&
+          Math.abs(box.x - before.x) < 0.5 &&
+          Math.abs(box.y - before.y) < 0.5
+        );
+      },
+      { message: "the element never came to rest" },
+    )
+    .toBe(true);
+  if (!seen.last) throw new Error("could not measure the element");
+  return seen.last;
 }
 
 /**

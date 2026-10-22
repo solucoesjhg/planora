@@ -1,19 +1,34 @@
-# Local database for development and integration tests.
+# The local services: one Postgres and the local inbox. `docker compose up -d`.
 #
-# The plan's local environment is the Supabase CLI stack (§5.1), which is what
-# gives Storage parity — and Storage does not arrive until Phase 7. Until then
-# this is the whole dependency: one Postgres, on the port the CLI stack uses, so
-# DATABASE_URL does not change when we switch.
+# The plan's local environment was the Supabase CLI stack (§5.1); Phase 7 took
+# the fallback instead, Docker Postgres plus a filesystem storage adapter, so
+# this file is the whole dependency (STATUS, "Blocked / open").
+#
+# Both services answer this machine only. A port published without an address
+# is published on every interface, and then postgres:postgres and an inbox full
+# of sign-in links answer whoever shares the network.
+#
+# The host ports can be moved. On some Windows machines WinNAT reserves a range
+# that includes 54322 (`netsh int ipv4 show excludedportrange protocol=tcp`
+# lists it), and the container cannot start. Set the port in the shell, or in a
+# `.env` file beside this one, which Compose reads on every `up`:
+#
+#   PLANORA_DB_PORT=55322     Postgres; DATABASE_URL and the other URLs follow it
+#   PLANORA_MAIL_PORT=8025    the inbox and its HTTP API; MAILPIT_URL follows it
+#   PLANORA_SMTP_PORT=1025    SMTP; nothing in Planora sends through it
+#
+# Unset, they are the defaults below, which every documented URL assumes.
 
 services:
   postgres:
     image: postgres:17
     container_name: planora-db
     environment:
+      # A throwaway password, for a database only this machine can reach.
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: planora_dev
     ports:
-      - "54322:5432"
+      - "127.0.0.1:${PLANORA_DB_PORT:-54322}:5432"
     volumes:
       - planora-db:/var/lib/postgresql/data
     healthcheck:
@@ -22,14 +37,15 @@ services:
       timeout: 5s
       retries: 10
 
-  # The local inbox. Nothing leaves the machine in development, and the
-  # messages are read at http://localhost:8025.
+  # The local inbox. Nothing leaves the machine in development: Planora posts to
+  # Mailpit's HTTP API (src/server/email/sender.ts), and the messages are read
+  # at http://localhost:8025. The same release CI runs (ADR 0009).
   mailpit:
-    image: axllent/mailpit:latest
+    image: axllent/mailpit:v1.31.6
     container_name: planora-mail
     ports:
-      - "8025:8025"
-      - "1025:1025"
+      - "127.0.0.1:${PLANORA_MAIL_PORT:-8025}:8025"
+      - "127.0.0.1:${PLANORA_SMTP_PORT:-1025}:1025"
 
 volumes:
   planora-db:

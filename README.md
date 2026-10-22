@@ -17,7 +17,8 @@ Interface in pt-BR; code, schema, comments and commits in English.
 ## Run it
 
 ```bash
-docker compose up -d      # Postgres on 54322, the local inbox (Mailpit) on 8025
+docker compose up -d      # Postgres on 127.0.0.1:54322, the local inbox (Mailpit) on 8025
+                          # port taken (WinNAT)? PLANORA_DB_PORT=55322 — see docker-compose.yml
 cp .env.example .env.local
 pnpm install
 pnpm db:migrate           # with MIGRATION_DATABASE_URL pointing at the local database
@@ -30,10 +31,14 @@ new account comes with a workspace and an example project.
 ## Check it
 
 ```bash
-pnpm verify    # typecheck, lint, unit tests, build — what CI runs on every push
-pnpm test:db   # integration tests, in their own database (planora_test, created on first run)
-pnpm e2e       # Playwright, against a production build
+pnpm verify    # typecheck, lint, unit tests, build — CI's `verify` job
+pnpm test:db   # integration tests, in their own database (planora_test, created on first run) — CI's `database` job
+pnpm e2e       # Playwright, against a production build — CI's `e2e` job
 ```
+
+CI runs all three on every pull request. The `e2e` job is the pull request's
+preview: its production build, against a database of its own migrated from
+empty, with the whole suite run on it ([ADR 0009](docs/adr/0009-the-preview-is-the-pull-requests-own-production-build.md)).
 
 The domain in `src/domain/` is pure — no React, no Next, no database — and a
 lint rule keeps it that way. Every rule the interface shows is the same function
