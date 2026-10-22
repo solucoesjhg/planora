@@ -333,6 +333,9 @@ export function Board({ view }: BoardProps) {
       <DragOverlay dropAnimation={null}>
         {draggingTask ? (
           <TaskCardView
+            // The card is in hand. The phone's long-press test waits on this
+            // rather than on a timer (board.spec.ts).
+            data-held="true"
             className="pln-sheet-held"
             task={draggingTask}
             phase={
