@@ -614,12 +614,29 @@ not be there next request.
 Migrations are never applied by hand from a laptop (§7 Phase 3).
 
 **Only `main` is built.** `vercel.json` carries an `ignoreCommand` that skips
-every deployment whose `VERCEL_ENV` is not `production`. Until Phase 11 gives
-each pull request a database of its own, a preview would either point at the
-production database or have none — the first is dangerous, the second answers
-every page with `DATABASE_URL is not set`. The same switch exists in the
-dashboard under *Settings → Build and Deployment → Ignored Build Step*, but the
-repository is where it belongs.
+every deployment whose `VERCEL_ENV` is not `production`. A Vercel preview would
+either point at the production database or have none — the first is
+dangerous, the second answers every page with `DATABASE_URL is not set`. The
+same switch exists in the dashboard under *Settings → Build and Deployment →
+Ignored Build Step*, but the repository is where it belongs.
+
+**A pull request's preview is the `e2e` job in CI** (ADR 0009), not a Vercel
+deployment. `.github/workflows/verify.yml` builds the pull request for
+production on the runner, against a Postgres 17 service container of its own
+that the suite's `globalSetup` migrates from empty, with the server connecting
+as `planora_app` and a Mailpit container as the inbox, and runs the whole E2E
+suite on it. It needs no secret and no account. There is no URL to click; when
+the job fails, the Playwright report — traces of retried tests included — is
+attached to the run as the `playwright-report` artifact. Vercel previews stay
+skipped even so: the suite drives the inbox, the local file store, the
+database and the address the rate limiter counts, none of which a deployed
+preview would hand it.
+
+The merge button waits on the job once it is a required check, which is a
+repository setting: GitHub → *Settings → Rules → Rulesets → main → Require
+status checks to pass → Add checks* → `e2e` (GitHub Actions), beside `verify`
+and `database`. Add it after the job has run once, so GitHub offers the name.
+The job ids are what the ruleset matches: renaming one blocks every merge.
 
 The command reads `VERCEL_ENV`, which Vercel hands to the ignore step only
 while *Settings → Environment Variables → Automatically expose System

@@ -699,12 +699,12 @@ The order is negotiable in most places and non-negotiable in one: **the domain c
 
 #### Phase 11 · Launch readiness
 
-- A preview environment per pull request, with its own migrated database
+- A preview per pull request, with its own migrated database: the pull request's production build, served in CI against a Postgres of its own migrated from empty and the local inbox — the `e2e` job (ADR 0009). Vercel still builds `main` only; a preview there would have no database of its own and could not run the suite
 - Error tracking, and a performance budget the pipeline enforces on the board and dashboard routes: LCP under 2.5s and INP under 200ms on a mid-range laptop profile, with the board's initial payload under 250KB compressed
 - Accessibility pass: keyboard path through the board, focus order, contrast against the earthy palette
-- The full E2E suite running against the preview before merge
+- The full E2E suite running against the preview before merge, as a required status check
 
-> **Done when** a push opens a preview with a migrated database and the suite passes on it before the merge button is available.
+> **Done when** a push opens a preview with a migrated database and the suite passes on it before the merge button is available — the `e2e` job building the pull request for production against its own freshly migrated database, required by the `main` ruleset (ADR 0009).
 
 #### Phase 12 · AI assistant
 

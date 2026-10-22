@@ -17,7 +17,14 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? "github" : "list",
+  /**
+   * In CI: the run as it goes in the log, failures and flaky tests as
+   * annotations on the pull request, and the HTML report — traces of retried
+   * tests included — that the `e2e` job uploads when it fails (ADR 0009).
+   */
+  reporter: process.env.CI
+    ? [["list"], ["github"], ["html", { open: "never" }]]
+    : "list",
   use: {
     baseURL: `http://localhost:${port}`,
     trace: "on-first-retry",

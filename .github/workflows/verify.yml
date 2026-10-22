@@ -5,19 +5,38 @@ on:
     branches: [main]
   pull_request:
 
+# Every job reads the repository and writes nothing back. The repository's
+# default is already read-only; saying it here keeps it so if that changes.
+permissions:
+  contents: read
+
+# A newer push to a pull request supersedes the run in progress, which matters
+# once the E2E job takes ten minutes. Runs on main are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The job ids `verify`, `database` and `e2e` are the names the "main" ruleset
+# requires. Renaming one blocks every merge.
+#
+# Actions are pinned to commits, not tags: a tag can be moved, a commit cannot.
+# The comment names the release each SHA was resolved from (2026-10-22); every
+# one of them runs on Node 24, the version the jobs use too.
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           run_install: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -44,15 +63,17 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           run_install: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -61,3 +82,84 @@ jobs:
       - run: pnpm test:db
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/planora_test
+
+  # The pull request's preview (ADR 0009): its own production build, against a
+  # database of its own migrated from empty and the local inbox, with the whole
+  # E2E suite run on it before the merge button is available. No secret: every
+  # value below is a throwaway that is worth nothing outside this runner.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: planora_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      # Where the sign-up, reset and invitation messages land, read by the suite
+      # over the HTTP API on 8025. A release tag and its digest, never `latest`:
+      # the inbox under test changes only when someone changes this line.
+      mailpit:
+        image: axllent/mailpit:v1.31.6@sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387
+        ports:
+          - 8025:8025
+        options: >-
+          --health-cmd "/mailpit readyz"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # 127.0.0.1, so the suite treats the service as this machine's database:
+      # globalSetup migrates it and gives planora_app its local password, and
+      # the server under test connects as planora_app, as production does.
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/planora_e2e
+      MAILPIT_URL: http://127.0.0.1:8025
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The browser at the version the lockfile's Playwright expects, and the
+      # system libraries it needs on the runner.
+      - run: pnpm exec playwright install --with-deps chromium
+
+      # playwright.config.ts builds and starts the production server with the
+      # suite's environment (mailpit, local storage, dev routes, the cron
+      # secret, no breach lookup — allowed because this is not VERCEL_ENV
+      # production, ADR 0008). CI is what the config keys on: a fresh server
+      # rather than one already listening, one retry, no test.only, and the
+      # HTML report the next step uploads. The runner sets it; so does this.
+      - run: pnpm e2e
+        env:
+          CI: "true"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ failure() }}
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14

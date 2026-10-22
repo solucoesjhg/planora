@@ -31,10 +31,14 @@ new account comes with a workspace and an example project.
 ## Check it
 
 ```bash
-pnpm verify    # typecheck, lint, unit tests, build — what CI runs on every push
-pnpm test:db   # integration tests, in their own database (planora_test, created on first run)
-pnpm e2e       # Playwright, against a production build
+pnpm verify    # typecheck, lint, unit tests, build — CI's `verify` job
+pnpm test:db   # integration tests, in their own database (planora_test, created on first run) — CI's `database` job
+pnpm e2e       # Playwright, against a production build — CI's `e2e` job
 ```
+
+CI runs all three on every pull request. The `e2e` job is the pull request's
+preview: its production build, against a database of its own migrated from
+empty, with the whole suite run on it ([ADR 0009](docs/adr/0009-the-preview-is-the-pull-requests-own-production-build.md)).
 
 The domain in `src/domain/` is pure — no React, no Next, no database — and a
 lint rule keeps it that way. Every rule the interface shows is the same function
