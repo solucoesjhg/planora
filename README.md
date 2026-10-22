@@ -17,7 +17,8 @@ Interface in pt-BR; code, schema, comments and commits in English.
 ## Run it
 
 ```bash
-docker compose up -d      # Postgres on 54322, the local inbox (Mailpit) on 8025
+docker compose up -d      # Postgres on 127.0.0.1:54322, the local inbox (Mailpit) on 8025
+                          # port taken (WinNAT)? PLANORA_DB_PORT=55322 — see docker-compose.yml
 cp .env.example .env.local
 pnpm install
 pnpm db:migrate           # with MIGRATION_DATABASE_URL pointing at the local database

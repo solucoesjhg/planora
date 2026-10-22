@@ -78,7 +78,9 @@ One phase, one branch, one pull request. No phase begins with a red test.
   A pt-BR label never becomes an identifier.
 - Commands: `pnpm dev`, `pnpm verify`, `pnpm test:watch`, `pnpm e2e`.
 - Services: `docker compose up -d` starts Postgres (54322) and the local inbox
-  Mailpit (http://localhost:8025). Then `pnpm test:db` with `DATABASE_URL`
+  Mailpit (http://localhost:8025), both on 127.0.0.1 only. Where Windows
+  reserves 54322 (WinNAT), set `PLANORA_DB_PORT` and use that port in every
+  URL below (docker-compose.yml). Then `pnpm test:db` with `DATABASE_URL`
   pointing at `postgresql://postgres:postgres@127.0.0.1:54322/planora_dev`, and
   `pnpm e2e` for Playwright. Integration tests skip themselves when that
   variable is absent; no email leaves the machine in development.
